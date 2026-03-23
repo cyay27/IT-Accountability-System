@@ -1,0 +1,101 @@
+Create a full-stack ready frontend web app called IT Assets Accountability System using:
+- Language: TypeScript
+- Framework: React.js (with Vite)
+- Database: Firebase Firestore
+- Styling: Professional print-friendly CSS matching a corporate accountability form
+
+Main requirement:
+Build a data-entry and printing system for IT accountability records. The user must input and save the following fields:
+
+1. No
+2. Emp ID
+3. Firstname
+4. Middle Name
+5. Last Name
+6. Email
+7. Position
+8. Group
+9. Department
+10. Division
+11. Project
+12. Cost Center
+13. Project Location
+14. Hostname
+15. Serial Number
+16. Asset Number (device)
+17. Monitor Model
+18. Monitor Serial Number
+19. Asset Number (monitor)
+20. PHR
+21. AMLD
+22. IT
+23. CATO
+
+Functional requirements:
+1. Create Record Form
+- Build a validated form for all fields above.
+- Required fields: Emp ID, Firstname, Last Name, Department, Division, Hostname, Serial Number, Asset Number (device).
+- Email must be valid format.
+- Auto-create full name from first, middle, last (for display).
+- Support edit and delete.
+
+2. Data Persistence
+- Save records to Firebase Firestore collection named accountability_records.
+- Include timestamps: createdAt, updatedAt.
+- Use proper TypeScript interfaces for record model.
+
+3. Records Table View
+- Show saved records in a searchable, sortable table.
+- Add filters for Department, Division, and Project.
+- Add actions per row: View, Edit, Delete, Print.
+
+4. Printable Output
+- Build a printable layout that visually matches an IT Assets Accountability Form (formal HR/IT handover sheet style).
+- Include:
+  - Header: company name and form title
+  - Employee details section
+  - Device/accountability details section
+  - Signature section for PHR, AMLD, IT, CATO
+- Make print output A4 portrait, clean black-and-white, with borders and aligned fields.
+- Add Print button that prints only the form content for selected record.
+
+5. App Structure
+- Use reusable components:
+  - EmployeeForm
+  - RecordsList
+  - PrintableForm
+  - HeaderBar
+- Use React hooks and strong typing.
+- Keep code modular and production-style.
+
+6. Firebase Setup
+- Add firebase config module with placeholders for:
+  - apiKey
+  - authDomain
+  - projectId
+  - storageBucket
+  - messagingSenderId
+  - appId
+- Include clear instructions in README on where to paste Firebase credentials.
+
+7. Deliverables
+Generate complete files:
+- package.json
+- tsconfig
+- vite config
+- src main entry files
+- components
+- firebase config
+- types
+- CSS for screen and print
+- README with setup and run instructions
+
+8. UX expectations
+- Professional enterprise look.
+- Responsive on desktop and mobile.
+- Easy-to-read form labels and table.
+- Print output should preserve layout and spacing.
+
+Also include sample mock data seed (at least 3 records) and ensure the app runs with:
+- npm install
+- npm run dev
