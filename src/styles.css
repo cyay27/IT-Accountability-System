@@ -703,9 +703,12 @@ body.dark-mode .panel h2,
 body.dark-mode .panel p,
 body.dark-mode .field span,
 body.dark-mode .stat-value,
-body.dark-mode .row-actions button,
 body.dark-mode .error-box p {
   color: #e2e8f0;
+}
+
+body.dark-mode .row-actions button {
+  color: #111111 !important;
 }
 
 body.dark-mode .nav-icon,
@@ -1550,6 +1553,7 @@ td {
 .row-actions button {
   padding: 0.38rem 0.55rem;
   font-size: 0.75rem;
+  color: #111111;
 }
 
 .borrowing-table {
