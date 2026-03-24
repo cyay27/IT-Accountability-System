@@ -13,8 +13,6 @@ type DisposalField =
 
 const fields: DisposalField[] = [
   { key: "disposalNo", label: "Disposal No." },
-  { key: "empId", label: "Employee ID" },
-  { key: "employeeName", label: "Employee Name" },
   {
     key: "department",
     label: "Department",
@@ -67,8 +65,6 @@ const fields: DisposalField[] = [
 ];
 
 const REQUIRED_KEYS: Array<keyof DisposalRecord> = [
-  "empId",
-  "employeeName",
   "deviceType",
   "serialNumber",
   "assetNumber",
@@ -160,11 +156,11 @@ export const DisposalForm = ({ editingRecord, onSubmit, onCancelEdit }: Disposal
   }, [dropdownFields, selectOptions]);
 
   const preview = useMemo(() => {
-    if (!form.employeeName.trim()) {
+    if (!form.disposalNo.trim() && !form.deviceType.trim()) {
       return "-";
     }
-    return form.employeeName;
-  }, [form.employeeName]);
+    return [form.disposalNo, form.deviceType].filter(Boolean).join(" • ");
+  }, [form.disposalNo, form.deviceType]);
 
   const validate = () => {
     const nextErrors: string[] = [];
@@ -323,7 +319,7 @@ export const DisposalForm = ({ editingRecord, onSubmit, onCancelEdit }: Disposal
       >
         {isEditMode ? "Done" : "Edit"}
       </button>
-      <p className="helper-text">Employee Preview: <strong>{preview}</strong></p>
+      <p className="helper-text">Disposal Preview: <strong>{preview}</strong></p>
 
       {errors.length > 0 && (
         <div className="error-box">

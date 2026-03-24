@@ -9,8 +9,11 @@ import { useReactToPrint } from "react-to-print";
 import { EmployeeForm } from "./modules/accountability/components/EmployeeForm";
 import { BorrowingReceiptForm } from "./modules/accountability/components/BorrowingReceiptForm";
 import { BorrowingReceiptPrintable } from "./modules/accountability/components/BorrowingReceiptPrintable";
+import { DeliveryReceiptForm } from "./modules/accountability/components/DeliveryReceiptForm";
+import { DeliveryReceiptPrintable } from "./modules/accountability/components/DeliveryReceiptPrintable";
 import { PrintableForm } from "./modules/accountability/components/PrintableForm";
 import { RecordsList } from "./modules/accountability/components/RecordsList";
+import { DeliveryReceiptRecord } from "./modules/accountability/types/deliveryReceipt";
 import { useAccountabilityRecords } from "./modules/accountability/hooks/useAccountabilityRecords";
 import { useBorrowingReceiptRecords } from "./modules/accountability/hooks/useBorrowingReceiptRecords";
 import { AccountabilityRecord } from "./modules/accountability/types/accountability";
@@ -61,7 +64,32 @@ const trimRecord = (record: AccountabilityRecord): AccountabilityRecord => {
   return next;
 };
 
-type ActiveView = "form" | "inventory" | "chart" | "records" | "printable" | "borrowing-form" | "borrowing-printable";
+const DELIVERY_RECEIPT_STORAGE_KEY = "ias:delivery-receipt-records";
+
+const readDeliveryReceiptRecords = (): DeliveryReceiptRecord[] => {
+  try {
+    const raw = localStorage.getItem(DELIVERY_RECEIPT_STORAGE_KEY);
+    if (!raw) return [];
+
+    const parsed = JSON.parse(raw) as DeliveryReceiptRecord[];
+    if (!Array.isArray(parsed)) return [];
+
+    return parsed;
+  } catch {
+    return [];
+  }
+};
+
+type ActiveView =
+  | "form"
+  | "inventory"
+  | "chart"
+  | "records"
+  | "printable"
+  | "borrowing-form"
+  | "borrowing-printable"
+  | "delivery-receipt-form"
+  | "delivery-receipt-printable";
 type ModuleKey =
   | "it-accountability-form"
   | "it-asset-inventory"
@@ -117,7 +145,7 @@ function App() {
     removeBorrowingReceipt
   } = useBorrowingReceiptRecords();
   const [borrowingFormInitialData, setBorrowingFormInitialData] = useState<BorrowingReceiptData | null>(null);
-  const [recordsInitialTable, setRecordsInitialTable] = useState<"accountability" | "borrowing" | null>(null);
+  const [recordsInitialTable, setRecordsInitialTable] = useState<"accountability" | "borrowing" | "delivery" | null>(null);
   const [activeView, setActiveView] = useState<ActiveView>("records");
   const [pendingPrint, setPendingPrint] = useState(false);
   const [pendingBorrowingPrint, setPendingBorrowingPrint] = useState(false);
@@ -149,9 +177,16 @@ function App() {
   } = useDisposalRecords();
   const [editingDisposalRecord, setEditingDisposalRecord] = useState<DisposalRecord | null>(null);
   const [selectedDisposalRecord, setSelectedDisposalRecord] = useState<DisposalRecord | null>(null);
+  const [editingDeliveryReceiptRecord, setEditingDeliveryReceiptRecord] = useState<DeliveryReceiptRecord | null>(null);
+  const [selectedDeliveryReceiptRecord, setSelectedDeliveryReceiptRecord] = useState<DeliveryReceiptRecord | null>(null);
+  const [pendingDeliveryReceiptPrint, setPendingDeliveryReceiptPrint] = useState(false);
+  const [deliveryReceiptRecords, setDeliveryReceiptRecords] = useState<DeliveryReceiptRecord[]>(
+    () => readDeliveryReceiptRecords()
+  );
 
   const printRef = useRef<HTMLDivElement>(null);
   const borrowingPrintRef = useRef<HTMLDivElement>(null);
+  const deliveryReceiptPrintRef = useRef<HTMLDivElement>(null);
   const assetPrintRef = useRef<HTMLDivElement>(null);
   const softwarePrintRef = useRef<HTMLDivElement>(null);
   const ipadPrintRef = useRef<HTMLDivElement>(null);
@@ -222,6 +257,13 @@ function App() {
     documentTitle: selectedRecord
       ? `IT-Borrowing-Receipt-${selectedRecord.empId}-${selectedRecord.lastName}`
       : "IT-Borrowing-Receipt"
+  });
+
+  const handleDeliveryReceiptPrint = useReactToPrint({
+    content: () => deliveryReceiptPrintRef.current,
+    documentTitle: selectedDeliveryReceiptRecord
+      ? `IT-Delivery-Receipt-${selectedDeliveryReceiptRecord.invoiceNumber || selectedDeliveryReceiptRecord.id}`
+      : "IT-Delivery-Receipt"
   });
 
   const handleSoftwarePrint = useReactToPrint({
@@ -390,6 +432,19 @@ function App() {
 
     return () => window.clearTimeout(timer);
   }, [pendingBorrowingPrint, activeView, selectedRecord, handleBorrowingPrint]);
+
+  useEffect(() => {
+    if (!pendingDeliveryReceiptPrint || activeView !== "delivery-receipt-printable" || !selectedDeliveryReceiptRecord) {
+      return;
+    }
+
+    const timer = window.setTimeout(() => {
+      void handleDeliveryReceiptPrint();
+      setPendingDeliveryReceiptPrint(false);
+    }, 0);
+
+    return () => window.clearTimeout(timer);
+  }, [pendingDeliveryReceiptPrint, activeView, selectedDeliveryReceiptRecord, handleDeliveryReceiptPrint]);
 
   useEffect(() => {
     if (
@@ -584,6 +639,74 @@ function App() {
     setPendingDisposalPrint(true);
   };
 
+  const persistDeliveryReceiptRecords = (next: DeliveryReceiptRecord[]) => {
+    setDeliveryReceiptRecords(next);
+    localStorage.setItem(DELIVERY_RECEIPT_STORAGE_KEY, JSON.stringify(next));
+  };
+
+  const handleSaveDeliveryReceipt = (record: Omit<DeliveryReceiptRecord, "id" | "createdAt" | "updatedAt">) => {
+    if (editingDeliveryReceiptRecord) {
+      const updatedAt = new Date().toISOString();
+      const next = deliveryReceiptRecords.map((item) =>
+        item.id === editingDeliveryReceiptRecord.id
+          ? {
+              ...item,
+              ...record,
+              updatedAt
+            }
+          : item
+      );
+
+      persistDeliveryReceiptRecords(next);
+      setEditingDeliveryReceiptRecord(null);
+      setRecordsInitialTable("delivery");
+      setActiveView("records");
+      return;
+    }
+
+    const now = new Date().toISOString();
+    const newRecord: DeliveryReceiptRecord = {
+      id: typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+        ? crypto.randomUUID()
+        : `${Date.now()}-${Math.random().toString(36).slice(2)}`,
+      ...record,
+      createdAt: now,
+      updatedAt: now
+    };
+
+    const next = [newRecord, ...deliveryReceiptRecords];
+    persistDeliveryReceiptRecords(next);
+    setRecordsInitialTable("delivery");
+    setActiveView("records");
+  };
+
+  const handleEditDeliveryReceiptRecord = (record: DeliveryReceiptRecord) => {
+    setEditingDeliveryReceiptRecord(record);
+    setActiveView("delivery-receipt-form");
+  };
+
+  const handleViewDeliveryReceiptRecord = (record: DeliveryReceiptRecord) => {
+    setSelectedDeliveryReceiptRecord(record);
+    setActiveView("delivery-receipt-printable");
+  };
+
+  const handleDeleteDeliveryReceiptRecord = (record: DeliveryReceiptRecord) => {
+    const confirmed = window.confirm(`Delete delivery receipt ${record.invoiceNumber || record.id}?`);
+    if (!confirmed) return;
+
+    const next = deliveryReceiptRecords.filter((item) => item.id !== record.id);
+    persistDeliveryReceiptRecords(next);
+    if (editingDeliveryReceiptRecord?.id === record.id) {
+      setEditingDeliveryReceiptRecord(null);
+    }
+  };
+
+  const handlePrintDeliveryReceiptRecord = (record: DeliveryReceiptRecord) => {
+    setSelectedDeliveryReceiptRecord(record);
+    setActiveView("delivery-receipt-printable");
+    setPendingDeliveryReceiptPrint(true);
+  };
+
   const handleModuleSelect = (moduleKey: string) => {
     const typed = moduleKey as ModuleKey;
     setSelectedModule(typed);
@@ -767,15 +890,33 @@ function App() {
               <>
                 <button
                   type="button"
+                  className={`nav-btn${activeView === "delivery-receipt-form" ? " nav-btn--active" : ""}`}
+                  onClick={() => {
+                    setEditingDeliveryReceiptRecord(null);
+                    setActiveView("delivery-receipt-form");
+                  }}
+                >
+                  <span className="nav-icon" aria-hidden="true">
+                    <svg viewBox="0 0 24 24" fill="none">
+                      <path d="M7 3.5h8.2l2.8 2.8v13.2l-1.8-1.2-1.8 1.2-1.8-1.2-1.8 1.2-1.8-1.2-1.8 1.2V5.5a2 2 0 0 1 2-2Z" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" />
+                      <path d="M9 9h6" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+                      <path d="M9 12.5h6" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+                      <path d="M9 16h4" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+                    </svg>
+                  </span>
+                  Create Delivery Receipt
+                </button>
+                <button
+                  type="button"
                   className={`nav-btn${activeView === "form" ? " nav-btn--active" : ""}`}
                   onClick={() => setActiveView("form")}
                 >
                   <span className="nav-icon">✦</span>
-                  Create Record
+                  Create Accountability Form
                 </button>
                 <button
                   type="button"
-                  className={`nav-btn${activeView === "borrowing-form" || activeView === "borrowing-printable" ? " nav-btn--active" : ""}`}
+                  className={`nav-btn${activeView === "borrowing-form" ? " nav-btn--active" : ""}`}
                   onClick={() => {
                     setBorrowingFormInitialData(null);
                     setActiveView("borrowing-form");
@@ -790,7 +931,7 @@ function App() {
                       <path d="M9 9h3" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
                     </svg>
                   </span>
-                  Borrowing Receipts
+                  Create Borrowing Receipt
                 </button>
                 <button
                   type="button"
@@ -805,7 +946,7 @@ function App() {
                 </button>
                 <button
                   type="button"
-                  className={`nav-btn${activeView === "printable" ? " nav-btn--active" : ""}`}
+                  className={`nav-btn${activeView === "printable" || activeView === "borrowing-printable" || activeView === "delivery-receipt-printable" ? " nav-btn--active" : ""}`}
                   onClick={() => {
                     setSelectedRecord(null);
                     setActiveView("printable");
@@ -1015,6 +1156,18 @@ function App() {
             />
           )}
 
+          {isAccountabilityModule && activeView === "delivery-receipt-form" && (
+            <DeliveryReceiptForm
+              editingRecord={editingDeliveryReceiptRecord}
+              onSave={handleSaveDeliveryReceipt}
+              onCancelEdit={() => {
+                setEditingDeliveryReceiptRecord(null);
+                setRecordsInitialTable("delivery");
+                setActiveView("records");
+              }}
+            />
+          )}
+
           {isAssetInventoryModule && activeView === "inventory" && (
             <ITAssetInventory
               records={assetInventoryRecords}
@@ -1056,6 +1209,7 @@ function App() {
             <RecordsList
               records={records}
               borrowingReceiptByRecordId={borrowingReceiptByRecordId}
+              deliveryReceiptRecords={deliveryReceiptRecords}
               initialTable={recordsInitialTable}
               onEdit={handleEditRecord}
               onDelete={handleDelete}
@@ -1065,6 +1219,10 @@ function App() {
               onBorrowingView={handleViewBorrowingRecord}
               onBorrowingDelete={handleDeleteBorrowingRecord}
               onBorrowingPrint={handlePrintBorrowingRecord}
+              onDeliveryView={handleViewDeliveryReceiptRecord}
+              onDeliveryEdit={handleEditDeliveryReceiptRecord}
+              onDeliveryDelete={handleDeleteDeliveryReceiptRecord}
+              onDeliveryPrint={handlePrintDeliveryReceiptRecord}
               printActionType={printActionType}
             />
           )}
@@ -1101,6 +1259,13 @@ function App() {
               record={selectedRecord}
               data={selectedRecord?.id ? borrowingReceiptByRecordId[selectedRecord.id] ?? emptyBorrowingReceiptData() : emptyBorrowingReceiptData()}
               ref={borrowingPrintRef}
+            />
+          )}
+
+          {isAccountabilityModule && activeView === "delivery-receipt-printable" && (
+            <DeliveryReceiptPrintable
+              record={selectedDeliveryReceiptRecord}
+              ref={deliveryReceiptPrintRef}
             />
           )}
 

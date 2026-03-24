@@ -1,11 +1,13 @@
 import { useEffect, useMemo, useState } from "react";
 import { AccountabilityRecord } from "../types/accountability";
 import { BorrowingReceiptData } from "../types/borrowingReceipt";
+import { DeliveryReceiptRecord } from "../types/deliveryReceipt";
 
 interface RecordsListProps {
   records: AccountabilityRecord[];
   borrowingReceiptByRecordId: Record<string, BorrowingReceiptData>;
-  initialTable?: "accountability" | "borrowing" | null;
+  deliveryReceiptRecords: DeliveryReceiptRecord[];
+  initialTable?: "accountability" | "borrowing" | "delivery" | null;
   onEdit: (record: AccountabilityRecord) => void;
   onDelete: (record: AccountabilityRecord) => Promise<void>;
   onPrint: (record: AccountabilityRecord) => void;
@@ -14,6 +16,10 @@ interface RecordsListProps {
   onBorrowingView: (record: AccountabilityRecord) => void;
   onBorrowingDelete: (record: AccountabilityRecord) => void;
   onBorrowingPrint: (record: AccountabilityRecord) => void;
+  onDeliveryView: (record: DeliveryReceiptRecord) => void;
+  onDeliveryEdit: (record: DeliveryReceiptRecord) => void;
+  onDeliveryDelete: (record: DeliveryReceiptRecord) => void;
+  onDeliveryPrint: (record: DeliveryReceiptRecord) => void;
   printActionType?: "accountability" | "borrowing" | null;
 }
 
@@ -67,9 +73,19 @@ const BorrowingIcon = () => (
   </svg>
 );
 
+const DeliveryReceiptIcon = () => (
+  <svg viewBox="0 0 24 24" role="img" aria-hidden="true">
+    <path d="M7 3.5h8.2l2.8 2.8v13.2l-1.8-1.2-1.8 1.2-1.8-1.2-1.8 1.2-1.8-1.2-1.8 1.2V5.5a2 2 0 0 1 2-2Z" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" />
+    <path d="M9 9h6" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+    <path d="M9 12.5h6" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+    <path d="M9 16h4" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+  </svg>
+);
+
 export const RecordsList = ({
   records,
   borrowingReceiptByRecordId,
+  deliveryReceiptRecords,
   initialTable,
   onEdit,
   onDelete,
@@ -79,6 +95,10 @@ export const RecordsList = ({
   onBorrowingView,
   onBorrowingDelete,
   onBorrowingPrint,
+  onDeliveryView,
+  onDeliveryEdit,
+  onDeliveryDelete,
+  onDeliveryPrint,
   printActionType
 }: RecordsListProps) => {
   const [search, setSearch] = useState("");
@@ -87,7 +107,7 @@ export const RecordsList = ({
   const [sortKey, setSortKey] = useState<SortKey>("updatedAt");
   const [ascending, setAscending] = useState(false);
   const [selectedRecord, setSelectedRecord] = useState<AccountabilityRecord | null>(null);
-  const [activeTable, setActiveTable] = useState<"accountability" | "borrowing" | null>(null);
+  const [activeTable, setActiveTable] = useState<"accountability" | "borrowing" | "delivery" | null>(null);
 
   useEffect(() => {
     if (initialTable !== undefined) {
@@ -174,6 +194,17 @@ export const RecordsList = ({
       <div className="sidebar-actions">
         <button
           type="button"
+          className="sidebar-btn delivery"
+          onClick={() => setActiveTable("delivery")}
+          title="Delivery Receipt Records"
+          aria-label="Open Delivery Receipt Records"
+        >
+          <span className="icon">
+            <DeliveryReceiptIcon />
+          </span>
+        </button>
+        <button
+          type="button"
           className="sidebar-btn accountability"
           onClick={() => setActiveTable("accountability")}
           title="Accountability Records"
@@ -197,10 +228,17 @@ export const RecordsList = ({
       </div>
       <div className="records-main">
         {activeTable === null ? (
-          <p className="helper-text">Select an icon on the left to show Accountability Records or Borrowing Receipt Records.</p>
+          <p className="helper-text">Select an icon on the left to show Delivery Receipt, Accountability and Borrowing Receipt records.</p>
         ) : (
           <>
-        <h2>{activeTable === "borrowing" ? "Borrowing Receipt Records" : "IT Accountability Form Records"}</h2>
+        <h2>
+          {activeTable === "borrowing"
+            ? "Borrowing Receipt Records"
+            : activeTable === "delivery"
+              ? "Delivery Receipt Records"
+              : "IT Accountability Form Records"}
+        </h2>
+        {activeTable !== "delivery" && (
         <div className="filters">
         <input
           value={search}
@@ -226,8 +264,9 @@ export const RecordsList = ({
           ))}
         </select>
       </div>
+        )}
 
-      {printActionType && (
+      {printActionType && activeTable !== "delivery" && (
         <div className={`action-type-sidebar action-${printActionType}`}>
           <strong>Mode:</strong> {printActionType === "accountability" ? "Accountability Form" : "Borrowing Receipt"}
         </div>
@@ -235,7 +274,7 @@ export const RecordsList = ({
 
       {activeTable === "accountability" ? (
         <div className="table-wrap">
-          <table>
+          <table className="accountability-table">
             <thead>
               <tr>
                 <th><button type="button" onClick={() => toggleSort("empId")}>Emp ID</button></th>
@@ -267,7 +306,7 @@ export const RecordsList = ({
             </tbody>
           </table>
         </div>
-      ) : (
+      ) : activeTable === "borrowing" ? (
         <div className="table-wrap">
           <table className="borrowing-table">
             <thead>
@@ -320,6 +359,48 @@ export const RecordsList = ({
                       </td>
                     </tr>
                   ))
+              )}
+            </tbody>
+          </table>
+        </div>
+      ) : (
+        <div className="table-wrap">
+          <table className="delivery-table">
+            <thead>
+              <tr>
+                <th>Invoice Number</th>
+                <th>Purchase Number</th>
+                <th>Supplier</th>
+                <th>Delivery Date</th>
+                <th>Item Description</th>
+                <th>Other Details</th>
+                <th>Updated</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {deliveryReceiptRecords.length === 0 ? (
+                <tr>
+                  <td colSpan={8}>No delivery receipt records found yet. Create and save a Delivery Receipt first.</td>
+                </tr>
+              ) : (
+                deliveryReceiptRecords.map((record) => (
+                  <tr key={record.id}>
+                    <td>{record.invoiceNumber || "-"}</td>
+                    <td>{record.purchaseNumber || "-"}</td>
+                    <td>{record.supplier || "-"}</td>
+                    <td>{record.deliveryDate || "-"}</td>
+                    <td>{record.itemDescription || "-"}</td>
+                    <td>{record.otherDetails || "-"}</td>
+                    <td>{record.updatedAt ? new Date(record.updatedAt).toLocaleString() : "-"}</td>
+                    <td className="row-actions">
+                      <button type="button" onClick={() => onDeliveryView(record)} title="View delivery receipt">View</button>
+                      <button type="button" onClick={() => onDeliveryEdit(record)} title="Edit delivery receipt">Edit</button>
+                      <button type="button" className="ghost" onClick={() => onDeliveryDelete(record)} title="Delete delivery receipt">Delete</button>
+                      <button type="button" className="print" onClick={() => onDeliveryPrint(record)} title="Print delivery receipt">Print</button>
+                    </td>
+                  </tr>
+                ))
               )}
             </tbody>
           </table>

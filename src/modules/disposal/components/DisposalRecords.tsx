@@ -27,8 +27,6 @@ export const DisposalRecords = ({ records, onEdit, onDelete, onView, onPrint }: 
     return records.filter((item) => {
       const searchable = [
         item.disposalNo,
-        item.empId,
-        item.employeeName,
         item.deviceType,
         item.serialNumber,
         item.assetNumber,
@@ -53,7 +51,7 @@ export const DisposalRecords = ({ records, onEdit, onDelete, onView, onPrint }: 
         <input
           value={search}
           onChange={(event) => setSearch(event.target.value)}
-          placeholder="Search by disposal no, employee, device, serial..."
+          placeholder="Search by disposal no, device, serial..."
         />
 
         <select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}>
@@ -71,7 +69,6 @@ export const DisposalRecords = ({ records, onEdit, onDelete, onView, onPrint }: 
           <thead>
             <tr>
               <th>Disposal No.</th>
-              <th>Employee</th>
               <th>Department</th>
               <th>Device Type</th>
               <th>Serial Number</th>
@@ -86,7 +83,6 @@ export const DisposalRecords = ({ records, onEdit, onDelete, onView, onPrint }: 
             {filtered.map((record) => (
               <tr key={record.id}>
                 <td>{record.disposalNo || "-"}</td>
-                <td>{record.employeeName || "-"}</td>
                 <td>{record.department || "-"}</td>
                 <td>{record.deviceType || "-"}</td>
                 <td>{record.serialNumber || "-"}</td>
@@ -113,7 +109,7 @@ export const DisposalRecords = ({ records, onEdit, onDelete, onView, onPrint }: 
 
             {filtered.length === 0 && (
               <tr>
-                <td colSpan={10}>No disposal records found.</td>
+                <td colSpan={9}>No disposal records found.</td>
               </tr>
             )}
           </tbody>

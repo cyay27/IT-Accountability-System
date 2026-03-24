@@ -47,9 +47,6 @@ export const ReturnedAssetsRecords = ({ records }: ReturnedAssetsRecordsProps) =
   return (
     <section className="panel">
       <h2>Returned Assets</h2>
-      <p className="helper-text">
-        Synced from IT Accountability records with a Returned Date. Status is marked as Available for deployment.
-      </p>
 
       <div className="filters">
         <input

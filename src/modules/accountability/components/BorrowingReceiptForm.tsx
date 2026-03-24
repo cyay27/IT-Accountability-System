@@ -314,7 +314,7 @@ export const BorrowingReceiptForm = ({
 
   return (
     <section className="panel" style={{ position: "relative" }}>
-      <h2>Borrowing Receipt Form</h2>
+      <h2> Create Borrowing Receipt Form</h2>
       <button
         type="button"
         className="ghost"
