@@ -13,6 +13,47 @@ export interface SignatureField {
   date: string;
 }
 
+export interface AccountabilityHistoryEntry {
+  id: string;
+  action: "created" | "updated" | "signature-routed" | "returned";
+  summary: string;
+  timestamp: string;
+}
+
+export interface AssetHolderHistoryEntry {
+  id: string;
+  holderName: string;
+  empId: string;
+  department: string;
+  project: string;
+  releasedAt: string;
+}
+
+export interface AssetReturnHistoryEntry {
+  id: string;
+  returnedDate: string;
+  recordedAt: string;
+  assetCondition: string;
+  notes: string;
+}
+
+export interface ArchivedAssignmentEntry {
+  id: string;
+  archivedAt: string;
+  reason: string;
+  no: string;
+  empId: string;
+  fullName: string;
+  department: string;
+  project: string;
+  employmentStatus: string;
+  deviceType: string;
+  deviceDescription: string;
+  hostname: string;
+  serialNumber: string;
+  deviceAssetNumber: string;
+}
+
 export interface AccountabilityRecord {
   id?: string;
   no: string;
@@ -31,10 +72,12 @@ export interface AccountabilityRecord {
   projectLocation: string;
   employmentStatus: string;
   deviceType: string;
+  otherDeviceSpecification?: string;
   deviceDescription: string;
   hostname: string;
   serialNumber: string;
   deviceCondition: string;
+  deviceStatus?: string;
   deviceAssetNumber: string;
   monitorModel: string;
   monitorSerialNumber: string;
@@ -46,6 +89,15 @@ export interface AccountabilityRecord {
   amld: string;
   it: string;
   cato: string;
+  workflowStatus?: string;
+  signatureRouteTo?: string;
+  inventoryEntryType?: "active" | "history";
+  inventorySourceRecordId?: string;
+  inventorySnapshotReason?: string;
+  history?: AccountabilityHistoryEntry[];
+  previousHolders?: AssetHolderHistoryEntry[];
+  returnHistory?: AssetReturnHistoryEntry[];
+  archivedAssignments?: ArchivedAssignmentEntry[];
   attachments: AccountabilityAttachment[];
   returnedDate: string;
   assigneeSignature: SignatureField;
@@ -85,10 +137,12 @@ export const emptyRecord = (): AccountabilityRecord => ({
   projectLocation: "",
   employmentStatus: "",
   deviceType: "",
+  otherDeviceSpecification: "",
   deviceDescription: "",
   hostname: "",
   serialNumber: "",
   deviceCondition: "",
+  deviceStatus: "",
   deviceAssetNumber: "",
   monitorModel: "",
   monitorSerialNumber: "",
@@ -107,6 +161,12 @@ export const emptyRecord = (): AccountabilityRecord => ({
   amld: "",
   it: "",
   cato: "",
+  workflowStatus: "Pending Employee Signature",
+  signatureRouteTo: "",
+  history: [],
+  previousHolders: [],
+  returnHistory: [],
+  archivedAssignments: [],
   attachments: []
 });
 

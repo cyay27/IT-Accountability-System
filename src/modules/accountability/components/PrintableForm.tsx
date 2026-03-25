@@ -107,7 +107,10 @@ export const PrintableForm = forwardRef<HTMLDivElement, PrintableFormProps>(({ r
 
   const deviceRows = [
     {
-      type: record.deviceType,
+      type:
+        normalizedDeviceType === "others" && record.otherDeviceSpecification?.trim()
+          ? `Others - ${record.otherDeviceSpecification.trim()}`
+          : record.deviceType,
       description: record.deviceDescription,
       hostname: record.hostname,
       serial: record.serialNumber,
@@ -393,8 +396,7 @@ export const PrintableForm = forwardRef<HTMLDivElement, PrintableFormProps>(({ r
             <thead>
               <tr>
                 <th colSpan={3}>Releasing Unit:</th>
-                <th>Assignee</th>
-                <th>Assignee</th>
+                <th colSpan={2}>Assignee</th>
                 <th>Custodian</th>
               </tr>
               <tr>
@@ -402,8 +404,7 @@ export const PrintableForm = forwardRef<HTMLDivElement, PrintableFormProps>(({ r
                 <th>AMLD Representative</th>
                 <th>IT Representative</th>
                 <th>Received on</th>
-                <th>Returned on</th>
-                <th>&nbsp;</th>
+                <th colSpan={2}>Returned on</th>
               </tr>
             </thead>
             <tbody>
@@ -430,9 +431,9 @@ export const PrintableForm = forwardRef<HTMLDivElement, PrintableFormProps>(({ r
                 </td>
               </tr>
               <tr>
-                <td>Name and Signature Date</td>
-                <td>Name and Signature Date</td>
-                <td>Name and Signature Date</td>
+                <td>Name and Signature<br />Date</td>
+                <td>Name and Signature<br />Date</td>
+                <td>Name and Signature<br />Date</td>
                 <td>Date and Signature</td>
                 <td>Date and Signature</td>
                 <td>IT/ Warehouse</td>

@@ -3,12 +3,13 @@ import { AccountabilityRecord } from "../../accountability/types/accountability"
 
 interface ReturnedAssetsRecordsProps {
   records: AccountabilityRecord[];
+  onReassign: (record: AccountabilityRecord) => void;
 }
 
 const normalize = (value: string) => value.trim().toLowerCase();
 const PORTABLE_DEVICE_TYPES = new Set(["ipad", "tablet"]);
 
-export const ReturnedAssetsRecords = ({ records }: ReturnedAssetsRecordsProps) => {
+export const ReturnedAssetsRecords = ({ records, onReassign }: ReturnedAssetsRecordsProps) => {
   const [search, setSearch] = useState("");
   const [departmentFilter, setDepartmentFilter] = useState("");
 
@@ -44,6 +45,19 @@ export const ReturnedAssetsRecords = ({ records }: ReturnedAssetsRecordsProps) =
     });
   }, [records, search, departmentFilter]);
 
+  const getReturnedStatus = (record: AccountabilityRecord) => {
+    const normalized = (record.deviceStatus ?? "").trim().toLowerCase();
+    if (normalized === "defective") {
+      return "Defective";
+    }
+
+    if (normalized === "deployed") {
+      return "Deployed";
+    }
+
+    return "Available";
+  };
+
   return (
     <section className="panel">
       <h2>Returned Assets</h2>
@@ -78,30 +92,40 @@ export const ReturnedAssetsRecords = ({ records }: ReturnedAssetsRecordsProps) =
               <th>Asset Number</th>
               <th>Returned On</th>
               <th>Status</th>
+              <th>Actions</th>
             </tr>
           </thead>
           <tbody>
             {filtered.map((record) => (
               <tr key={record.id ?? `${record.empId}-${record.serialNumber}`}>
-                <td>{record.empId || "-"}</td>
-                <td>{[record.firstName, record.middleName, record.lastName].filter(Boolean).join(" ") || "-"}</td>
-                <td>{record.department || "-"}</td>
-                <td>{record.project || "-"}</td>
-                <td>{record.deviceType || "-"}</td>
-                <td>{record.serialNumber || "-"}</td>
-                <td>
-                  {PORTABLE_DEVICE_TYPES.has((record.deviceType || "").trim().toLowerCase())
-                    ? "-"
-                    : record.deviceAssetNumber || "-"}
-                </td>
-                <td>{record.returnedDate || "-"}</td>
-                <td>Available</td>
+                  <td>{record.empId || "-"}</td>
+                  <td>{[record.firstName, record.middleName, record.lastName].filter(Boolean).join(" ") || "-"}</td>
+                  <td>{record.department || "-"}</td>
+                  <td>{record.project || "-"}</td>
+                  <td>{record.deviceType || "-"}</td>
+                  <td>{record.serialNumber || "-"}</td>
+                  <td>
+                    {PORTABLE_DEVICE_TYPES.has((record.deviceType || "").trim().toLowerCase())
+                      ? "-"
+                      : record.deviceAssetNumber || "-"}
+                  </td>
+                  <td>{record.returnedDate || "-"}</td>
+                  <td>{getReturnedStatus(record)}</td>
+                  <td>
+                    <button
+                      type="button"
+                      className="ghost"
+                      onClick={() => onReassign(record)}
+                    >
+                      Edit/Reassign
+                    </button>
+                  </td>
               </tr>
             ))}
 
             {filtered.length === 0 && (
               <tr>
-                <td colSpan={9}>No returned assets found.</td>
+                <td colSpan={10}>No returned assets found.</td>
               </tr>
             )}
           </tbody>

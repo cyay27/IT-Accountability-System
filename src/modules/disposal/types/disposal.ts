@@ -1,5 +1,6 @@
 export interface DisposalRecord {
   id: string;
+  sourceAccountabilityRecordId?: string;
   disposalNo: string;
   empId: string;
   employeeName: string;

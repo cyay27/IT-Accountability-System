@@ -12,6 +12,14 @@ export const SignaturePad = ({ onSave, existingSignature, label }: SignaturePadP
   const [isEmpty, setIsEmpty] = useState(true);
   const [showCanvas, setShowCanvas] = useState(!existingSignature);
 
+  const readFileAsDataUrl = (file: File) =>
+    new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result ?? ""));
+      reader.onerror = () => reject(new Error("Unable to read uploaded signature file."));
+      reader.readAsDataURL(file);
+    });
+
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -125,6 +133,27 @@ export const SignaturePad = ({ onSave, existingSignature, label }: SignaturePadP
     setShowCanvas(false);
   };
 
+  const uploadSignature = async (files: FileList | null) => {
+    const file = files?.[0];
+    if (!file) {
+      return;
+    }
+
+    if (!file.type.startsWith("image/")) {
+      alert("Please upload an image file for signature.");
+      return;
+    }
+
+    try {
+      const dataUrl = await readFileAsDataUrl(file);
+      onSave(dataUrl);
+      setShowCanvas(false);
+      setIsEmpty(false);
+    } catch {
+      alert("Unable to upload signature image. Please try again.");
+    }
+  };
+
   const editSignature = () => {
     setShowCanvas(true);
     clearSignature();
@@ -158,6 +187,33 @@ export const SignaturePad = ({ onSave, existingSignature, label }: SignaturePadP
               backgroundColor: "#fff"
             }}
           />
+          <div style={{ marginBottom: "8px" }}>
+            <label
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: "8px",
+                padding: "6px 12px",
+                border: "1px solid #d1d5db",
+                borderRadius: "4px",
+                backgroundColor: "#ffffff",
+                color: "#111111",
+                fontSize: "12px",
+                cursor: "pointer"
+              }}
+            >
+              Attach Signature
+              <input
+                type="file"
+                accept="image/png,image/jpeg,image/jpg,image/webp"
+                style={{ display: "none" }}
+                onChange={(event) => {
+                  void uploadSignature(event.target.files);
+                  event.currentTarget.value = "";
+                }}
+              />
+            </label>
+          </div>
           <div style={{ display: "flex", gap: "8px" }}>
             <button
               type="button"
@@ -221,6 +277,31 @@ export const SignaturePad = ({ onSave, existingSignature, label }: SignaturePadP
           >
             Edit
           </button>
+          <label
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: "8px",
+              padding: "6px 12px",
+              border: "1px solid #d1d5db",
+              borderRadius: "4px",
+              backgroundColor: "#ffffff",
+              color: "#111111",
+              fontSize: "12px",
+              cursor: "pointer"
+            }}
+          >
+            Attach Signature
+            <input
+              type="file"
+              accept="image/png,image/jpeg,image/jpg,image/webp"
+              style={{ display: "none" }}
+              onChange={(event) => {
+                void uploadSignature(event.target.files);
+                event.currentTarget.value = "";
+              }}
+            />
+          </label>
         </div>
       ) : (
         <div style={{ color: "#000000", fontSize: "12px", padding: "8px" }}>

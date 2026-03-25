@@ -21,6 +21,8 @@ interface RecordsListProps {
   onDeliveryDelete: (record: DeliveryReceiptRecord) => void;
   onDeliveryPrint: (record: DeliveryReceiptRecord) => void;
   printActionType?: "accountability" | "borrowing" | null;
+  deliveryOnly?: boolean;
+  accountabilityOnly?: boolean;
 }
 
 type SortKey = keyof AccountabilityRecord;
@@ -99,7 +101,9 @@ export const RecordsList = ({
   onDeliveryEdit,
   onDeliveryDelete,
   onDeliveryPrint,
-  printActionType
+  printActionType,
+  deliveryOnly = false,
+  accountabilityOnly = false
 }: RecordsListProps) => {
   const [search, setSearch] = useState("");
   const [department, setDepartment] = useState("");
@@ -107,13 +111,24 @@ export const RecordsList = ({
   const [sortKey, setSortKey] = useState<SortKey>("updatedAt");
   const [ascending, setAscending] = useState(false);
   const [selectedRecord, setSelectedRecord] = useState<AccountabilityRecord | null>(null);
+  const [historyModalRecord, setHistoryModalRecord] = useState<AccountabilityRecord | null>(null);
   const [activeTable, setActiveTable] = useState<"accountability" | "borrowing" | "delivery" | null>(null);
 
   useEffect(() => {
+    if (deliveryOnly) {
+      setActiveTable("delivery");
+      return;
+    }
+
+    if (accountabilityOnly) {
+      setActiveTable("accountability");
+      return;
+    }
+
     if (initialTable !== undefined) {
       setActiveTable(initialTable);
     }
-  }, [initialTable]);
+  }, [initialTable, deliveryOnly, accountabilityOnly]);
 
   const options = useMemo(() => {
     const getUnique = (key: keyof AccountabilityRecord) =>
@@ -174,6 +189,71 @@ export const RecordsList = ({
     setAscending(true);
   };
 
+  const handleViewHistory = (record: AccountabilityRecord) => {
+    setHistoryModalRecord(record);
+  };
+
+  useEffect(() => {
+    if (!historyModalRecord) {
+      return;
+    }
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setHistoryModalRecord(null);
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [historyModalRecord]);
+
+  const historyName = historyModalRecord
+    ? [historyModalRecord.firstName, historyModalRecord.middleName, historyModalRecord.lastName]
+        .filter(Boolean)
+        .join(" ") || historyModalRecord.empId || "Record"
+    : "";
+
+  const historyEdits = useMemo(() => {
+    if (!historyModalRecord) {
+      return [];
+    }
+
+    return [...(historyModalRecord.history ?? [])].sort((a, b) =>
+      String(b.timestamp).localeCompare(String(a.timestamp))
+    );
+  }, [historyModalRecord]);
+
+  const historyHolders = useMemo(() => {
+    if (!historyModalRecord) {
+      return [];
+    }
+
+    return [...(historyModalRecord.previousHolders ?? [])].sort((a, b) =>
+      String(b.releasedAt).localeCompare(String(a.releasedAt))
+    );
+  }, [historyModalRecord]);
+
+  const historyReturns = useMemo(() => {
+    if (!historyModalRecord) {
+      return [];
+    }
+
+    return [...(historyModalRecord.returnHistory ?? [])].sort((a, b) =>
+      String(b.recordedAt).localeCompare(String(a.recordedAt))
+    );
+  }, [historyModalRecord]);
+
+  const historyArchivedAssignments = useMemo(() => {
+    if (!historyModalRecord) {
+      return [];
+    }
+
+    return [...(historyModalRecord.archivedAssignments ?? [])].sort((a, b) =>
+      String(b.archivedAt).localeCompare(String(a.archivedAt))
+    );
+  }, [historyModalRecord]);
+
   const borrowingRows = useMemo(() => {
     return records
       .map((record) => {
@@ -189,56 +269,64 @@ export const RecordsList = ({
       .filter(Boolean) as Array<{ record: AccountabilityRecord; borrowing: BorrowingReceiptData }>;
   }, [records, borrowingReceiptByRecordId]);
 
+  const effectiveTable = deliveryOnly
+    ? "delivery"
+    : accountabilityOnly
+      ? "accountability"
+      : activeTable;
+
   return (
-    <section className="panel records-with-sidebar">
-      <div className="sidebar-actions">
-        <button
-          type="button"
-          className="sidebar-btn delivery"
-          onClick={() => setActiveTable("delivery")}
-          title="Delivery Receipt Records"
-          aria-label="Open Delivery Receipt Records"
-        >
-          <span className="icon">
-            <DeliveryReceiptIcon />
-          </span>
-        </button>
-        <button
-          type="button"
-          className="sidebar-btn accountability"
-          onClick={() => setActiveTable("accountability")}
-          title="Accountability Records"
-          aria-label="Open Accountability Records"
-        >
-          <span className="icon">
-            <AccountabilityIcon />
-          </span>
-        </button>
-        <button
-          type="button"
-          className="sidebar-btn borrowing"
-          onClick={() => setActiveTable("borrowing")}
-          title="Borrowing Receipt Records"
-          aria-label="Open Borrowing Receipt Records"
-        >
-          <span className="icon">
-            <BorrowingIcon />
-          </span>
-        </button>
-      </div>
+    <section className={`panel${deliveryOnly || accountabilityOnly ? "" : " records-with-sidebar"}`}>
+      {!deliveryOnly && !accountabilityOnly && (
+        <div className="sidebar-actions">
+          <button
+            type="button"
+            className="sidebar-btn delivery"
+            onClick={() => setActiveTable("delivery")}
+            title="Delivery Receipt Records"
+            aria-label="Open Delivery Receipt Records"
+          >
+            <span className="icon">
+              <DeliveryReceiptIcon />
+            </span>
+          </button>
+          <button
+            type="button"
+            className="sidebar-btn accountability"
+            onClick={() => setActiveTable("accountability")}
+            title="Accountability Records"
+            aria-label="Open Accountability Records"
+          >
+            <span className="icon">
+              <AccountabilityIcon />
+            </span>
+          </button>
+          <button
+            type="button"
+            className="sidebar-btn borrowing"
+            onClick={() => setActiveTable("borrowing")}
+            title="Borrowing Receipt Records"
+            aria-label="Open Borrowing Receipt Records"
+          >
+            <span className="icon">
+              <BorrowingIcon />
+            </span>
+          </button>
+        </div>
+      )}
       <div className="records-main">
-        {activeTable === null ? (
+        {effectiveTable === null ? (
           <p className="helper-text">Select an icon on the left to show Delivery Receipt, Accountability and Borrowing Receipt records.</p>
         ) : (
           <>
         <h2>
-          {activeTable === "borrowing"
+          {effectiveTable === "borrowing"
             ? "Borrowing Receipt Records"
-            : activeTable === "delivery"
+            : effectiveTable === "delivery"
               ? "Delivery Receipt Records"
               : "IT Accountability Form Records"}
         </h2>
-        {activeTable !== "delivery" && (
+        {effectiveTable !== "delivery" && (
         <div className="filters">
         <input
           value={search}
@@ -266,13 +354,13 @@ export const RecordsList = ({
       </div>
         )}
 
-      {printActionType && activeTable !== "delivery" && (
+      {printActionType && effectiveTable !== "delivery" && (
         <div className={`action-type-sidebar action-${printActionType}`}>
           <strong>Mode:</strong> {printActionType === "accountability" ? "Accountability Form" : "Borrowing Receipt"}
         </div>
       )}
 
-      {activeTable === "accountability" ? (
+      {effectiveTable === "accountability" ? (
         <div className="table-wrap">
           <table className="accountability-table">
             <thead>
@@ -282,6 +370,10 @@ export const RecordsList = ({
                 <th><button type="button" onClick={() => toggleSort("department")}>Department</button></th>
                 <th><button type="button" onClick={() => toggleSort("project")}>Project</button></th>
                 <th>Attachments</th>
+                <th>Workflow</th>
+                <th>Previous Holders</th>
+                <th>User History</th>
+                <th>Returns</th>
                 <th><button type="button" onClick={() => toggleSort("updatedAt")}>Updated</button></th>
                 <th>Actions</th>
               </tr>
@@ -294,10 +386,15 @@ export const RecordsList = ({
                   <td>{record.department}</td>
                   <td>{record.project}</td>
                   <td>{record.attachments?.length ?? 0}</td>
+                  <td>{record.workflowStatus || "Pending Employee Signature"}</td>
+                  <td>{record.previousHolders?.length ?? 0}</td>
+                  <td>{record.archivedAssignments?.length ?? 0}</td>
+                  <td>{record.returnHistory?.length ?? 0}</td>
                   <td>{record.updatedAt ? new Date(record.updatedAt).toLocaleString() : "-"}</td>
                   <td className="row-actions">
                     <button type="button" onClick={(e) => { e.stopPropagation(); onView(record); }} title="View accountability form">View</button>
                     <button type="button" onClick={(e) => { e.stopPropagation(); onEdit(record); }} title="Edit accountability record">Edit</button>
+                    <button type="button" className="ghost" onClick={(e) => { e.stopPropagation(); handleViewHistory(record); }} title="View edit, holder, and return history">History</button>
                     <button type="button" className="ghost" onClick={(e) => { e.stopPropagation(); void onDelete(record); }}>Delete</button>
                     <button type="button" className="print" onClick={(e) => { e.stopPropagation(); onPrint(record); }} title="Print accountability form">Print</button>
                   </td>
@@ -306,7 +403,7 @@ export const RecordsList = ({
             </tbody>
           </table>
         </div>
-      ) : activeTable === "borrowing" ? (
+      ) : effectiveTable === "borrowing" ? (
         <div className="table-wrap">
           <table className="borrowing-table">
             <thead>
@@ -409,6 +506,112 @@ export const RecordsList = ({
           </>
         )}
       </div>
+
+      {historyModalRecord && (
+        <div
+          className="history-modal-backdrop"
+          role="presentation"
+          onClick={() => setHistoryModalRecord(null)}
+        >
+          <section
+            className="history-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="history-modal-title"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <header className="history-modal-header">
+              <div>
+                <h3 id="history-modal-title">History for {historyName}</h3>
+                <p className="helper-text">Track edits, previous holders, and return events.</p>
+              </div>
+              <button
+                type="button"
+                className="ghost"
+                onClick={() => setHistoryModalRecord(null)}
+              >
+                Close
+              </button>
+            </header>
+
+            <div className="history-modal-body">
+              <section className="history-section">
+                <h4>Edit History</h4>
+                {historyEdits.length === 0 ? (
+                  <p className="helper-text">No edit history yet.</p>
+                ) : (
+                  <ul>
+                    {historyEdits.map((entry) => (
+                      <li key={entry.id}>
+                        <strong>{entry.timestamp ? new Date(entry.timestamp).toLocaleString() : "-"}</strong>
+                        <span>{entry.action}</span>
+                        <span>{entry.summary}</span>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </section>
+
+              <section className="history-section">
+                <h4>Previous Holders</h4>
+                {historyHolders.length === 0 ? (
+                  <p className="helper-text">No previous holders tracked yet.</p>
+                ) : (
+                  <ul>
+                    {historyHolders.map((entry) => (
+                      <li key={entry.id}>
+                        <strong>{entry.holderName || "Unknown Holder"}</strong>
+                        <span>Emp ID: {entry.empId || "-"}</span>
+                        <span>Dept: {entry.department || "-"}</span>
+                        <span>Project: {entry.project || "-"}</span>
+                        <span>Released: {entry.releasedAt ? new Date(entry.releasedAt).toLocaleString() : "-"}</span>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </section>
+
+              <section className="history-section">
+                <h4>Return History</h4>
+                {historyReturns.length === 0 ? (
+                  <p className="helper-text">No return history yet.</p>
+                ) : (
+                  <ul>
+                    {historyReturns.map((entry) => (
+                      <li key={entry.id}>
+                        <strong>Return Date: {entry.returnedDate || "-"}</strong>
+                        <span>Recorded: {entry.recordedAt ? new Date(entry.recordedAt).toLocaleString() : "-"}</span>
+                        <span>Condition: {entry.assetCondition || "-"}</span>
+                        <span>{entry.notes || "-"}</span>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </section>
+
+              <section className="history-section">
+                <h4>User History</h4>
+                {historyArchivedAssignments.length === 0 ? (
+                  <p className="helper-text">No user history snapshots yet.</p>
+                ) : (
+                  <ul>
+                    {historyArchivedAssignments.map((entry) => (
+                      <li key={entry.id}>
+                        <strong>{entry.fullName || "-"} ({entry.empId || "-"})</strong>
+                        <span>Archived: {entry.archivedAt ? new Date(entry.archivedAt).toLocaleString() : "-"}</span>
+                        <span>Reason: {entry.reason || "-"}</span>
+                        <span>Device: {[entry.deviceType, entry.deviceDescription].filter(Boolean).join(" - ") || "-"}</span>
+                        <span>Asset: {entry.deviceAssetNumber || "-"} | Serial: {entry.serialNumber || "-"}</span>
+                        <span>Dept/Project: {entry.department || "-"} / {entry.project || "-"}</span>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </section>
+            </div>
+          </section>
+        </div>
+      )}
     </section>
   );
 };

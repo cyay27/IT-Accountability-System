@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { SoftwareInventoryRecord } from "../types/softwareInventory";
 
 interface SoftwareInventoryChartProps {
@@ -31,10 +31,26 @@ const colorFromLabel = (label: string) => {
 };
 
 export const SoftwareInventoryChart = ({ records }: SoftwareInventoryChartProps) => {
+  const [projectFilter, setProjectFilter] = useState("");
+
+  const projectOptions = useMemo(() => {
+    return Array.from(new Set(records.map((item) => item.project).filter(Boolean))).sort((a, b) =>
+      a.localeCompare(b)
+    );
+  }, [records]);
+
+  const filteredRecords = useMemo(() => {
+    if (!projectFilter) {
+      return records;
+    }
+
+    return records.filter((item) => item.project === projectFilter);
+  }, [records, projectFilter]);
+
   const chart = useMemo(() => {
     const counts = new Map<string, number>();
 
-    records.forEach((item) => {
+    filteredRecords.forEach((item) => {
       const key = item.softwareName?.trim() || "Unspecified";
       counts.set(key, (counts.get(key) ?? 0) + 1);
     });
@@ -71,12 +87,32 @@ export const SoftwareInventoryChart = ({ records }: SoftwareInventoryChartProps)
       total,
       pie: `conic-gradient(${segments.join(", ")})`
     };
-  }, [records]);
+  }, [filteredRecords]);
 
   return (
     <section className="panel">
-      <h2>Software Chart</h2>
-      <p className="helper-text">Color-coded distribution by software name.</p>
+      <div className="inventory-chart-header">
+        <div>
+          <h2>Software Chart</h2>
+          <p className="helper-text">Color-coded distribution by software name.</p>
+        </div>
+
+        <div className="inventory-chart-filter">
+          <div className="inventory-chart-filter-control">
+            <span className="inventory-chart-filter-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none">
+                <path d="M4 6h16l-6.5 7.1V18l-3 1.8v-6.7L4 6Z" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" />
+              </svg>
+            </span>
+            <select value={projectFilter} onChange={(event) => setProjectFilter(event.target.value)}>
+              <option value="">All Projects</option>
+              {projectOptions.map((option) => (
+                <option key={option} value={option}>{option}</option>
+              ))}
+            </select>
+          </div>
+        </div>
+      </div>
 
       <div className="inventory-pie-layout">
         <div className="inventory-pie-wrap">

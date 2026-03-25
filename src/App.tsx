@@ -38,6 +38,7 @@ import { SelectionPage } from "./modules/navigation/components/SelectionPage";
 import { ReturnedAssetsChart } from "./modules/returned-assets/components/ReturnedAssetsChart";
 import { ReturnedAssetsPrintable } from "./modules/returned-assets/components/ReturnedAssetsPrintable";
 import { ReturnedAssetsRecords } from "./modules/returned-assets/components/ReturnedAssetsRecords";
+import { ReturnedAssetsReassignForm } from "./modules/returned-assets/components/ReturnedAssetsReassignForm";
 import { useReturnedAssetsRecords } from "./modules/returned-assets/hooks/useReturnedAssetsRecords";
 import { SoftwareInventoryChart } from "./modules/software-inventory/components/SoftwareInventoryChart";
 import { SoftwareInventoryForm } from "./modules/software-inventory/components/SoftwareInventoryForm";
@@ -91,6 +92,7 @@ type ActiveView =
   | "delivery-receipt-form"
   | "delivery-receipt-printable";
 type ModuleKey =
+  | "new-item"
   | "it-accountability-form"
   | "it-asset-inventory"
   | "it-software-inventory"
@@ -170,6 +172,7 @@ function App() {
   const [sectionCollectionsBackfilled, setSectionCollectionsBackfilled] = useState(false);
   const {
     records: disposalRecords,
+    loading: disposalLoading,
     error: disposalError,
     createRecord: createDisposalRecord,
     updateRecord: updateDisposalRecord,
@@ -179,6 +182,7 @@ function App() {
   const [selectedDisposalRecord, setSelectedDisposalRecord] = useState<DisposalRecord | null>(null);
   const [editingDeliveryReceiptRecord, setEditingDeliveryReceiptRecord] = useState<DeliveryReceiptRecord | null>(null);
   const [selectedDeliveryReceiptRecord, setSelectedDeliveryReceiptRecord] = useState<DeliveryReceiptRecord | null>(null);
+  const [editingReturnedAssetRecord, setEditingReturnedAssetRecord] = useState<AccountabilityRecord | null>(null);
   const [pendingDeliveryReceiptPrint, setPendingDeliveryReceiptPrint] = useState(false);
   const [deliveryReceiptRecords, setDeliveryReceiptRecords] = useState<DeliveryReceiptRecord[]>(
     () => readDeliveryReceiptRecords()
@@ -307,14 +311,110 @@ function App() {
       await removeIpadInventoryRecord(id);
     }
 
-    if (record.returnedDate?.trim()) {
+    const normalizedDeviceStatus = (record.deviceStatus ?? "").trim().toLowerCase();
+    const shouldStayInReturnedAssets = Boolean(record.returnedDate?.trim()) && normalizedDeviceStatus !== "deployed";
+
+    if (shouldStayInReturnedAssets) {
       await upsertReturnedAssetsRecord({ ...record, id });
     } else {
       await removeReturnedAssetsRecord(id);
     }
+
+    const linkedDisposalRecord = disposalRecords.find(
+      (item) => item.sourceAccountabilityRecordId === id
+    );
+    const isForDisposal = (record.deviceStatus ?? "").trim().toLowerCase() === "for disposal";
+    const employeeName = [record.firstName, record.middleName, record.lastName]
+      .filter(Boolean)
+      .join(" ");
+    const today = new Date().toISOString().split("T")[0];
+
+    if (isForDisposal) {
+      const syncedDisposalRecord: DisposalRecord = {
+        id: linkedDisposalRecord?.id ?? "",
+        sourceAccountabilityRecordId: id,
+        disposalNo: linkedDisposalRecord?.disposalNo || record.no || `AUTO-${record.empId || id.slice(0, 8)}`,
+        empId: record.empId || "",
+        employeeName: employeeName || linkedDisposalRecord?.employeeName || "",
+        department: record.department || "",
+        project: record.project || "",
+        deviceType: record.deviceType || "",
+        serialNumber: record.serialNumber || "",
+        assetNumber: record.deviceAssetNumber || "",
+        conditionAtDisposal: linkedDisposalRecord?.conditionAtDisposal || "",
+        disposalReason: linkedDisposalRecord?.disposalReason || "",
+        recommendedAction: linkedDisposalRecord?.recommendedAction || "",
+        dataWipeRequired: linkedDisposalRecord?.dataWipeRequired || "No",
+        status: linkedDisposalRecord?.status || "Draft",
+        requestedBy: linkedDisposalRecord?.requestedBy || employeeName || "",
+        approvedBy: linkedDisposalRecord?.approvedBy || "",
+        requestedDate: linkedDisposalRecord?.requestedDate || today,
+        disposalDate: linkedDisposalRecord?.disposalDate || "",
+        notes: linkedDisposalRecord?.notes || "Synced from IT Accountability Form",
+        createdAt: linkedDisposalRecord?.createdAt || "",
+        updatedAt: linkedDisposalRecord?.updatedAt || ""
+      };
+
+      if (linkedDisposalRecord?.id) {
+        await updateDisposalRecord(linkedDisposalRecord.id, syncedDisposalRecord);
+      } else {
+        await createDisposalRecord(syncedDisposalRecord);
+      }
+    } else if (linkedDisposalRecord?.id) {
+      await removeDisposalRecord(linkedDisposalRecord.id);
+    }
+
+    const linkedSoftwareRecord = softwareRecords.find(
+      (item) => item.sourceAccountabilityRecordId === id
+    );
+    const hasSoftwareName = Boolean(record.softwareName.trim());
+
+    if (hasSoftwareName) {
+      const syncedSoftwareRecord: SoftwareInventoryRecord = {
+        sourceAccountabilityRecordId: id,
+        formNo: record.no || "",
+        softwareName: record.softwareName || "",
+        softwareVersion: "",
+        vendor: "",
+        licenseType: linkedSoftwareRecord?.licenseType || "N/A",
+        licenseReference: record.softwareLicense || "",
+        seatsPurchased: linkedSoftwareRecord?.seatsPurchased || "",
+        seatsUsed: linkedSoftwareRecord?.seatsUsed || "",
+        assignedTo: [record.firstName, record.middleName, record.lastName].filter(Boolean).join(" "),
+        employeeId: record.empId || "",
+        department: record.department || "",
+        project: record.project || "",
+        hostname: record.hostname || "",
+        requestTicket: linkedSoftwareRecord?.requestTicket || "",
+        preparedBy: linkedSoftwareRecord?.preparedBy || "",
+        approvedBy: linkedSoftwareRecord?.approvedBy || "",
+        preparedSignature: linkedSoftwareRecord?.preparedSignature ?? { name: "", signatureDataUrl: null, date: "" },
+        approvedSignature: linkedSoftwareRecord?.approvedSignature ?? { name: "", signatureDataUrl: null, date: "" },
+        expiryDate: linkedSoftwareRecord?.expiryDate || "",
+        status: linkedSoftwareRecord?.status || "Active",
+        remarks: linkedSoftwareRecord?.remarks || "Synced from IT Accountability Form"
+      };
+
+      if (linkedSoftwareRecord?.id) {
+        await updateSoftwareRecord(linkedSoftwareRecord.id, {
+          ...linkedSoftwareRecord,
+          ...syncedSoftwareRecord,
+          id: linkedSoftwareRecord.id,
+          createdAt: linkedSoftwareRecord.createdAt
+        });
+      } else {
+        await createSoftwareRecord(syncedSoftwareRecord);
+      }
+    } else if (linkedSoftwareRecord?.id) {
+      await removeSoftwareRecord(linkedSoftwareRecord.id);
+    }
   };
 
   useEffect(() => {
+    if (softwareLoading || disposalLoading) {
+      return;
+    }
+
     if (sectionCollectionsBackfilled) {
       return;
     }
@@ -327,11 +427,57 @@ function App() {
     };
 
     void backfill();
-  }, [records, sectionCollectionsBackfilled]);
+  }, [records, softwareLoading, disposalLoading, sectionCollectionsBackfilled]);
+
+  useEffect(() => {
+    const syncReturnedAssetsToInventory = async () => {
+      for (const record of returnedAssetsRecords) {
+        if (!record.id) {
+          continue;
+        }
+
+        const existingInventoryRecord = assetInventoryRecords.find((item) => item.id === record.id);
+        const isMissingInInventory = !existingInventoryRecord;
+        const hasNewerReturnedRecord =
+          (record.updatedAt ?? "") !== (existingInventoryRecord?.updatedAt ?? "");
+
+        if (isMissingInInventory || hasNewerReturnedRecord) {
+          await upsertAssetInventoryRecord({ ...record, id: record.id });
+        }
+      }
+    };
+
+    void syncReturnedAssetsToInventory();
+  }, [returnedAssetsRecords, assetInventoryRecords, upsertAssetInventoryRecord]);
+
+  const snapshotPreviousInventoryRecord = async (recordId: string, reason: string) => {
+    const previous = records.find((item) => item.id === recordId);
+    if (!previous) {
+      return;
+    }
+
+    const snapshotAt = new Date();
+    const snapshotKey = snapshotAt.toISOString().replace(/[-:.TZ]/g, "");
+    const snapshotId = `${recordId}-hist-${snapshotKey}`;
+
+    await upsertAssetInventoryRecord({
+      ...previous,
+      id: snapshotId,
+      inventoryEntryType: "history",
+      inventorySourceRecordId: recordId,
+      inventorySnapshotReason: reason,
+      createdAt: previous.createdAt ?? snapshotAt.toISOString(),
+      updatedAt: snapshotAt.toISOString()
+    });
+  };
 
   const handleSubmit = async (record: AccountabilityRecord) => {
     const cleaned = trimRecord(record);
     if (editingRecord?.id) {
+      await snapshotPreviousInventoryRecord(
+        editingRecord.id,
+        "Edited from IT Accountability form"
+      );
       const updated = { ...cleaned, id: editingRecord.id };
       await updateRecord(editingRecord.id, cleaned);
       await syncSectionRecordsForAccountability(updated);
@@ -350,6 +496,28 @@ function App() {
     setActiveView("records");
   };
 
+  const handleReturnedAssetSaveEdit = async (record: AccountabilityRecord) => {
+    if (!record.id) {
+      return;
+    }
+
+    await snapshotPreviousInventoryRecord(
+      record.id,
+      "Edited from Returned Assets reassign form"
+    );
+
+    const cleaned = trimRecord(record);
+    await updateRecord(record.id, cleaned);
+    await syncSectionRecordsForAccountability({ ...cleaned, id: record.id });
+    setEditingReturnedAssetRecord(null);
+    setActiveView("records");
+  };
+
+  const handleReturnedAssetOpenReassignForm = (record: AccountabilityRecord) => {
+    setEditingReturnedAssetRecord(record);
+    setActiveView("form");
+  };
+
   const handleDelete = async (record: AccountabilityRecord) => {
     if (!record.id) return;
     const confirmed = window.confirm(`Delete record for ${record.empId} - ${record.lastName}?`);
@@ -358,7 +526,21 @@ function App() {
     await removeAssetInventoryRecord(record.id);
     await removeIpadInventoryRecord(record.id);
     await removeReturnedAssetsRecord(record.id);
+    const linkedDisposalRecords = disposalRecords.filter(
+      (item) => item.sourceAccountabilityRecordId === record.id
+    );
+    for (const linkedDisposalRecord of linkedDisposalRecords) {
+      await removeDisposalRecord(linkedDisposalRecord.id);
+    }
     await removeBorrowingReceipt(record.id);
+    const linkedSoftwareRecords = softwareRecords.filter(
+      (item) => item.sourceAccountabilityRecordId === record.id || item.id === record.id
+    );
+    for (const linkedSoftwareRecord of linkedSoftwareRecords) {
+      if (linkedSoftwareRecord.id) {
+        await removeSoftwareRecord(linkedSoftwareRecord.id);
+      }
+    }
     if (selectedRecord?.id === record.id) setSelectedRecord(null);
     if (editingRecord?.id === record.id) setEditingRecord(null);
   };
@@ -524,7 +706,11 @@ function App() {
   }, [pendingDisposalPrint, activeView, selectedModule, handleDisposalPrint]);
 
   useEffect(() => {
-    if (selectedModule !== "it-accountability-form" || activeView !== "borrowing-form") {
+    const isBorrowingViewInSupportedModule =
+      activeView === "borrowing-form" &&
+      (selectedModule === "it-accountability-form" || selectedModule === "it-asset-inventory");
+
+    if (!isBorrowingViewInSupportedModule) {
       return;
     }
 
@@ -710,6 +896,10 @@ function App() {
   const handleModuleSelect = (moduleKey: string) => {
     const typed = moduleKey as ModuleKey;
     setSelectedModule(typed);
+    if (typed === "new-item") {
+      setActiveView("delivery-receipt-form");
+      return;
+    }
     if (typed === "it-accountability-form") {
       setActiveView("form");
       return;
@@ -848,6 +1038,7 @@ function App() {
   }
 
   const isAccountabilityModule = selectedModule === "it-accountability-form";
+  const isNewItemModule = selectedModule === "new-item";
   const isAssetInventoryModule = selectedModule === "it-asset-inventory";
   const isSoftwareInventoryModule = selectedModule === "it-software-inventory";
   const isIpadInventoryModule = selectedModule === "ipad-inventory";
@@ -859,9 +1050,14 @@ function App() {
   const accountabilityDepartmentOptions = Array.from(
     new Set(records.map((item) => item.department.trim()).filter(Boolean))
   ).sort((left, right) => left.localeCompare(right));
+  const accountabilitySoftwareNameOptions = Array.from(
+    new Set(records.map((item) => item.softwareName.trim()).filter(Boolean))
+  ).sort((left, right) => left.localeCompare(right));
   const moduleThemeClass = selectedModule ? `theme-${selectedModule}` : "";
 
-  const headerTitle = isAssetInventoryModule
+  const headerTitle = isNewItemModule
+    ? "New Item"
+    : isAssetInventoryModule
     ? "IT Asset Inventory"
     : isSoftwareInventoryModule
       ? "IT Software Inventory"
@@ -890,48 +1086,11 @@ function App() {
               <>
                 <button
                   type="button"
-                  className={`nav-btn${activeView === "delivery-receipt-form" ? " nav-btn--active" : ""}`}
-                  onClick={() => {
-                    setEditingDeliveryReceiptRecord(null);
-                    setActiveView("delivery-receipt-form");
-                  }}
-                >
-                  <span className="nav-icon" aria-hidden="true">
-                    <svg viewBox="0 0 24 24" fill="none">
-                      <path d="M7 3.5h8.2l2.8 2.8v13.2l-1.8-1.2-1.8 1.2-1.8-1.2-1.8 1.2-1.8-1.2-1.8 1.2V5.5a2 2 0 0 1 2-2Z" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" />
-                      <path d="M9 9h6" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
-                      <path d="M9 12.5h6" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
-                      <path d="M9 16h4" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
-                    </svg>
-                  </span>
-                  Create Delivery Receipt
-                </button>
-                <button
-                  type="button"
                   className={`nav-btn${activeView === "form" ? " nav-btn--active" : ""}`}
                   onClick={() => setActiveView("form")}
                 >
                   <span className="nav-icon">✦</span>
                   Create Accountability Form
-                </button>
-                <button
-                  type="button"
-                  className={`nav-btn${activeView === "borrowing-form" ? " nav-btn--active" : ""}`}
-                  onClick={() => {
-                    setBorrowingFormInitialData(null);
-                    setActiveView("borrowing-form");
-                  }}
-                >
-                  <span className="nav-icon" aria-hidden="true">
-                    <svg viewBox="0 0 24 24" fill="none">
-                      <path d="M7 4h8l4 4v11a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2Z" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" />
-                      <path d="M15 4v4h4" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" />
-                      <path d="M9 12h6" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
-                      <path d="M9 15h6" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
-                      <path d="M9 9h3" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
-                    </svg>
-                  </span>
-                  Create Borrowing Receipt
                 </button>
                 <button
                   type="button"
@@ -958,6 +1117,53 @@ function App() {
               </>
             )}
 
+            {isNewItemModule && (
+              <>
+                <button
+                  type="button"
+                  className={`nav-btn${activeView === "delivery-receipt-form" ? " nav-btn--active" : ""}`}
+                  onClick={() => {
+                    setEditingDeliveryReceiptRecord(null);
+                    setActiveView("delivery-receipt-form");
+                  }}
+                >
+                  <span className="nav-icon" aria-hidden="true">
+                    <svg viewBox="0 0 24 24" fill="none">
+                      <path d="M7 3.5h8.2l2.8 2.8v13.2l-1.8-1.2-1.8 1.2-1.8-1.2-1.8 1.2-1.8-1.2-1.8 1.2V5.5a2 2 0 0 1 2-2Z" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" />
+                      <path d="M9 9h6" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+                      <path d="M9 12.5h6" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+                      <path d="M9 16h4" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+                    </svg>
+                  </span>
+                  Create Delivery Receipt
+                </button>
+                <button
+                  type="button"
+                  className={`nav-btn${activeView === "records" ? " nav-btn--active" : ""}`}
+                  onClick={() => {
+                    setRecordsInitialTable("delivery");
+                    setActiveView("records");
+                  }}
+                >
+                  <span className="nav-icon">☰</span>
+                  Records
+                </button>
+                <button
+                  type="button"
+                  className={`nav-btn${activeView === "delivery-receipt-printable" ? " nav-btn--active" : ""}`}
+                  onClick={() => {
+                    if (!selectedDeliveryReceiptRecord && deliveryReceiptRecords.length > 0) {
+                      setSelectedDeliveryReceiptRecord(deliveryReceiptRecords[0]);
+                    }
+                    setActiveView("delivery-receipt-printable");
+                  }}
+                >
+                  <span className="nav-icon">⎙</span>
+                  Printable Form
+                </button>
+              </>
+            )}
+
             {isAssetInventoryModule && (
               <>
                 <button
@@ -967,6 +1173,25 @@ function App() {
                 >
                   <span className="nav-icon">▦</span>
                   Asset
+                </button>
+                <button
+                  type="button"
+                  className={`nav-btn${activeView === "borrowing-form" ? " nav-btn--active" : ""}`}
+                  onClick={() => {
+                    setBorrowingFormInitialData(null);
+                    setActiveView("borrowing-form");
+                  }}
+                >
+                  <span className="nav-icon" aria-hidden="true">
+                    <svg viewBox="0 0 24 24" fill="none">
+                      <path d="M7 4h8l4 4v11a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2Z" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" />
+                      <path d="M15 4v4h4" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" />
+                      <path d="M9 12h6" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+                      <path d="M9 15h6" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+                      <path d="M9 9h3" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+                    </svg>
+                  </span>
+                  Create Borrowing Receipt
                 </button>
                 <button
                   type="button"
@@ -1092,6 +1317,14 @@ function App() {
               <>
                 <button
                   type="button"
+                  className={`nav-btn${activeView === "form" ? " nav-btn--active" : ""}`}
+                  onClick={() => setActiveView("form")}
+                >
+                  <span className="nav-icon">✎</span>
+                  Reassign Form
+                </button>
+                <button
+                  type="button"
                   className={`nav-btn${activeView === "records" ? " nav-btn--active" : ""}`}
                   onClick={() => setActiveView("records")}
                 >
@@ -1148,6 +1381,18 @@ function App() {
             </div>
           )}
 
+          {isNewItemModule && activeView === "delivery-receipt-form" && (
+            <DeliveryReceiptForm
+              editingRecord={editingDeliveryReceiptRecord}
+              onSave={handleSaveDeliveryReceipt}
+              onCancelEdit={() => {
+                setEditingDeliveryReceiptRecord(null);
+                setRecordsInitialTable("delivery");
+                setActiveView("records");
+              }}
+            />
+          )}
+
           {isAccountabilityModule && activeView === "form" && (
             <EmployeeForm
               editingRecord={editingRecord}
@@ -1168,9 +1413,33 @@ function App() {
             />
           )}
 
+          {isNewItemModule && activeView === "records" && (
+            <RecordsList
+              records={records}
+              borrowingReceiptByRecordId={borrowingReceiptByRecordId}
+              deliveryReceiptRecords={deliveryReceiptRecords}
+              initialTable={recordsInitialTable ?? "delivery"}
+              onEdit={handleEditRecord}
+              onDelete={handleDelete}
+              onPrint={handlePrintRecord}
+              onView={handleViewRecord}
+              onBorrowing={handleBorrowingRecord}
+              onBorrowingView={handleViewBorrowingRecord}
+              onBorrowingDelete={handleDeleteBorrowingRecord}
+              onBorrowingPrint={handlePrintBorrowingRecord}
+              onDeliveryView={handleViewDeliveryReceiptRecord}
+              onDeliveryEdit={handleEditDeliveryReceiptRecord}
+              onDeliveryDelete={handleDeleteDeliveryReceiptRecord}
+              onDeliveryPrint={handlePrintDeliveryReceiptRecord}
+              printActionType={printActionType}
+              deliveryOnly
+            />
+          )}
+
           {isAssetInventoryModule && activeView === "inventory" && (
             <ITAssetInventory
               records={assetInventoryRecords}
+              newItemRecords={deliveryReceiptRecords}
               loading={assetInventoryLoading}
               onRefresh={reloadAssetInventoryRecords}
             />
@@ -1182,6 +1451,14 @@ function App() {
 
           {isAssetInventoryModule && activeView === "printable" && (
             <ITAssetInventoryPrintable records={assetInventoryRecords} ref={assetPrintRef} />
+          )}
+
+          {isAssetInventoryModule && activeView === "borrowing-form" && (
+            <BorrowingReceiptForm
+              record={selectedRecord}
+              initialData={borrowingFormInitialData}
+              onSave={handleSaveBorrowingForm}
+            />
           )}
 
           {isIpadInventoryModule && activeView === "inventory" && (
@@ -1196,6 +1473,7 @@ function App() {
             <SoftwareInventoryForm
               editingRecord={editingSoftwareRecord}
               onSubmit={handleSoftwareSubmit}
+              softwareNameOptionsFromAccountability={accountabilitySoftwareNameOptions}
               projectOptionsFromAccountability={accountabilityProjectOptions}
               departmentOptionsFromAccountability={accountabilityDepartmentOptions}
               onCancelEdit={() => {
@@ -1224,6 +1502,7 @@ function App() {
               onDeliveryDelete={handleDeleteDeliveryReceiptRecord}
               onDeliveryPrint={handlePrintDeliveryReceiptRecord}
               printActionType={printActionType}
+              accountabilityOnly
             />
           )}
 
@@ -1269,6 +1548,13 @@ function App() {
             />
           )}
 
+          {isNewItemModule && activeView === "delivery-receipt-printable" && (
+            <DeliveryReceiptPrintable
+              record={selectedDeliveryReceiptRecord}
+              ref={deliveryReceiptPrintRef}
+            />
+          )}
+
           {isSoftwareInventoryModule && activeView === "printable" && (
             <SoftwareInventoryPrintable
               record={selectedSoftwareRecord}
@@ -1301,8 +1587,22 @@ function App() {
             <DisposalPrintable record={selectedDisposalRecord} ref={disposalPrintRef} />
           )}
 
+          {isReturnedAssetsModule && activeView === "form" && (
+            <ReturnedAssetsReassignForm
+              record={editingReturnedAssetRecord}
+              onSave={handleReturnedAssetSaveEdit}
+              onCancel={() => {
+                setEditingReturnedAssetRecord(null);
+                setActiveView("records");
+              }}
+            />
+          )}
+
           {isReturnedAssetsModule && activeView === "records" && (
-            <ReturnedAssetsRecords records={returnedAssetsRecords} />
+            <ReturnedAssetsRecords
+              records={returnedAssetsRecords}
+              onReassign={handleReturnedAssetOpenReassignForm}
+            />
           )}
 
           {isReturnedAssetsModule && activeView === "chart" && (

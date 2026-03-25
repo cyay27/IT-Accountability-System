@@ -18,6 +18,38 @@ const LOCAL_STORAGE_KEY = "ias-local-records";
 
 const stampNow = () => new Date().toISOString();
 
+const buildHolderName = (record: AccountabilityRecord) =>
+  [record.firstName, record.middleName, record.lastName]
+    .map((value) => String(value ?? "").trim())
+    .filter(Boolean)
+    .join(" ");
+
+const hasAssigneeSignature = (record: AccountabilityRecord) =>
+  Boolean(record.assigneeSignature?.signatureDataUrl);
+
+const getRouteTarget = (record: AccountabilityRecord) =>
+  record.email?.trim() || buildHolderName(record) || "Employee/User";
+
+const getWorkflowStatus = (record: AccountabilityRecord) =>
+  hasAssigneeSignature(record) ? "Signed by Employee" : "Pending Employee Signature";
+
+const buildArchivedAssignment = (record: AccountabilityRecord, archivedAt: string) => ({
+  id: crypto.randomUUID(),
+  archivedAt,
+  reason: "Reassigned to another employee",
+  no: record.no || "",
+  empId: record.empId || "",
+  fullName: buildHolderName(record) || "",
+  department: record.department || "",
+  project: record.project || "",
+  employmentStatus: record.employmentStatus || "",
+  deviceType: record.deviceType || "",
+  deviceDescription: record.deviceDescription || "",
+  hostname: record.hostname || "",
+  serialNumber: record.serialNumber || "",
+  deviceAssetNumber: record.deviceAssetNumber || ""
+});
+
 const readLocal = (): AccountabilityRecord[] => {
   const raw = localStorage.getItem(LOCAL_STORAGE_KEY);
   if (!raw) return [...mockRecords];
@@ -72,10 +104,64 @@ export const useAccountabilityRecords = () => {
   }, [loadRecords]);
 
   const createRecord = async (record: AccountabilityRecord) => {
-    const payload: AccountabilityRecord = {
+    const now = stampNow();
+    const routeTarget = getRouteTarget(record);
+    const withSystemFields: AccountabilityRecord = {
       ...record,
-      createdAt: stampNow(),
-      updatedAt: stampNow()
+      workflowStatus: getWorkflowStatus(record),
+      signatureRouteTo: routeTarget,
+      archivedAssignments: [...(record.archivedAssignments ?? [])],
+      returnHistory: [...(record.returnHistory ?? [])],
+      previousHolders: [...(record.previousHolders ?? [])],
+      history: [
+        ...(record.history ?? []),
+        {
+          id: crypto.randomUUID(),
+          action: "created",
+          summary: "Accountability record created by IT.",
+          timestamp: now
+        }
+      ]
+    };
+
+    if (!hasAssigneeSignature(withSystemFields)) {
+      withSystemFields.history = [
+        ...(withSystemFields.history ?? []),
+        {
+          id: crypto.randomUUID(),
+          action: "signature-routed",
+          summary: `Signature request routed to ${routeTarget}.`,
+          timestamp: now
+        }
+      ];
+    }
+
+    if (withSystemFields.returnedDate?.trim()) {
+      withSystemFields.returnHistory = [
+        ...(withSystemFields.returnHistory ?? []),
+        {
+          id: crypto.randomUUID(),
+          returnedDate: withSystemFields.returnedDate,
+          recordedAt: now,
+          assetCondition: withSystemFields.deviceCondition || "Unspecified",
+          notes: "Return recorded from accountability form."
+        }
+      ];
+      withSystemFields.history = [
+        ...(withSystemFields.history ?? []),
+        {
+          id: crypto.randomUUID(),
+          action: "returned",
+          summary: `Asset return logged for ${withSystemFields.returnedDate}.`,
+          timestamp: now
+        }
+      ];
+    }
+
+    const payload: AccountabilityRecord = {
+      ...withSystemFields,
+      createdAt: now,
+      updatedAt: now
     };
 
     if (useLocalMode) {
@@ -93,9 +179,103 @@ export const useAccountabilityRecords = () => {
   };
 
   const updateRecord = async (id: string, record: AccountabilityRecord) => {
+    const now = stampNow();
+    const existing = records.find((item) => item.id === id) ?? null;
+    const routeTarget = getRouteTarget(record);
+    const nextHistory = [
+      ...(record.history ?? existing?.history ?? []),
+      {
+        id: crypto.randomUUID(),
+        action: "updated" as const,
+        summary: "Accountability record updated by IT.",
+        timestamp: now
+      }
+    ];
+
+    let nextPreviousHolders = [...(record.previousHolders ?? existing?.previousHolders ?? [])];
+    let nextArchivedAssignments = [...(record.archivedAssignments ?? existing?.archivedAssignments ?? [])];
+    if (existing) {
+      const previousHolderName = buildHolderName(existing);
+      const nextHolderName = buildHolderName(record);
+      const holderChanged =
+        existing.empId.trim().toLowerCase() !== record.empId.trim().toLowerCase() ||
+        previousHolderName.trim().toLowerCase() !== nextHolderName.trim().toLowerCase();
+
+      if (holderChanged && (existing.empId.trim() || previousHolderName.trim())) {
+        const alreadyTracked = nextPreviousHolders.some(
+          (entry) =>
+            entry.empId.trim().toLowerCase() === existing.empId.trim().toLowerCase() &&
+            entry.holderName.trim().toLowerCase() === previousHolderName.trim().toLowerCase()
+        );
+
+        if (!alreadyTracked) {
+          nextPreviousHolders = [
+            ...nextPreviousHolders,
+            {
+              id: crypto.randomUUID(),
+              holderName: previousHolderName || "Unknown Holder",
+              empId: existing.empId || "-",
+              department: existing.department || "-",
+              project: existing.project || "-",
+              releasedAt: now
+            }
+          ];
+        }
+
+        nextArchivedAssignments = [
+          buildArchivedAssignment(existing, now),
+          ...nextArchivedAssignments
+        ];
+
+        nextHistory.push({
+          id: crypto.randomUUID(),
+          action: "updated",
+          summary: `Device reassigned from ${previousHolderName || existing.empId || "previous holder"} to ${nextHolderName || record.empId || "new holder"}. Previous record snapshot archived.`,
+          timestamp: now
+        });
+      }
+    }
+
+    let nextReturnHistory = [...(record.returnHistory ?? existing?.returnHistory ?? [])];
+    const hasReturnRecord = nextReturnHistory.some((entry) => entry.returnedDate === record.returnedDate);
+    if (record.returnedDate?.trim() && !hasReturnRecord) {
+      nextReturnHistory = [
+        ...nextReturnHistory,
+        {
+          id: crypto.randomUUID(),
+          returnedDate: record.returnedDate,
+          recordedAt: now,
+          assetCondition: record.deviceCondition || "Unspecified",
+          notes: "Return recorded from accountability form."
+        }
+      ];
+
+      nextHistory.push({
+        id: crypto.randomUUID(),
+        action: "returned",
+        summary: `Asset return logged for ${record.returnedDate}.`,
+        timestamp: now
+      });
+    }
+
+    if (!hasAssigneeSignature(record)) {
+      nextHistory.push({
+        id: crypto.randomUUID(),
+        action: "signature-routed",
+        summary: `Signature request routed to ${routeTarget}.`,
+        timestamp: now
+      });
+    }
+
     const payload: AccountabilityRecord = {
       ...record,
-      updatedAt: stampNow()
+      workflowStatus: getWorkflowStatus(record),
+      signatureRouteTo: routeTarget,
+      history: nextHistory,
+      previousHolders: nextPreviousHolders,
+      returnHistory: nextReturnHistory,
+      archivedAssignments: nextArchivedAssignments,
+      updatedAt: now
     };
 
     if (useLocalMode) {

@@ -9,6 +9,7 @@ import { SignaturePad } from "./SignaturePad";
 
 interface EmployeeFormProps {
   editingRecord: AccountabilityRecord | null;
+  prefillRecord?: AccountabilityRecord | null;
   onSubmit: (record: AccountabilityRecord) => Promise<void>;
   onCancelEdit: () => void;
 }
@@ -47,7 +48,8 @@ const labels: FieldDef[] = [
   { key: "deviceDescription", label: "Description / Device Model" },
   { key: "hostname", label: "Hostname" },
   { key: "serialNumber", label: "Serial Number" },
-  { key: "deviceCondition", label: "Device Condition", type: "select", options: ["", "New", "Old"] },
+  { key: "deviceCondition", label: "Device Condition", type: "select", options: ["", "New", "Old", "Aged"] },
+  { key: "deviceStatus", label: "Device Status", type: "select", options: ["", "Active", "Defective", "For Disposal", "Deployed"] },
   { key: "deviceAssetNumber", label: "Asset Number (Device)" },
   { key: "monitorModel", label: "Monitor Model" },
   { key: "monitorSerialNumber", label: "Monitor Serial Number" },
@@ -57,7 +59,6 @@ const labels: FieldDef[] = [
   { key: "phr", label: "HR/PHR Representative" },
   { key: "amld", label: "AMLD Representative" },
   { key: "it", label: "IT Representative" },
-  { key: "cato", label: "CATO" },
 ];
 
 const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -112,14 +113,56 @@ const loadEmployeeDropdownConfig = () => {
   const defaultSelectOptions = buildEmployeeDefaultSelectOptions();
 
   const sanitizeProjectOptions = (options: Record<string, string[]>) => {
+        const currentDeviceStatusOptions = options.deviceStatus ?? [];
+        const hasBlankDeviceStatus = currentDeviceStatusOptions.includes("");
+        const normalizedDeviceStatusOptions = [
+          ...(hasBlankDeviceStatus ? [""] : []),
+          ...Array.from(
+            new Set(
+              currentDeviceStatusOptions
+                .filter((option) => option.trim() !== "")
+                .map((option) => option.trim())
+            )
+          )
+        ];
     const currentProjectOptions = options.project ?? [];
     const cleanedProjectOptions = currentProjectOptions.filter(
       (option) => option === "" || !isRemovedProjectOption(option)
     );
 
+    const currentDeviceConditionOptions = options.deviceCondition ?? [];
+    const hasBlank = currentDeviceConditionOptions.includes("");
+    const normalizedDeviceConditionOptions = [
+      ...(hasBlank ? [""] : []),
+      ...Array.from(
+        new Set(
+          currentDeviceConditionOptions
+            .filter((option) => option.trim() !== "")
+            .map((option) => option.trim())
+        )
+      )
+    ];
+
+    const ensureOption = (list: string[], option: string) => {
+      const exists = list.some((item) => item.toLowerCase() === option.toLowerCase());
+      if (!exists) {
+        list.push(option);
+      }
+    };
+
+    ensureOption(normalizedDeviceConditionOptions, "New");
+    ensureOption(normalizedDeviceConditionOptions, "Old");
+    ensureOption(normalizedDeviceConditionOptions, "Aged");
+    ensureOption(normalizedDeviceStatusOptions, "Active");
+    ensureOption(normalizedDeviceStatusOptions, "Defective");
+    ensureOption(normalizedDeviceStatusOptions, "For Disposal");
+    ensureOption(normalizedDeviceStatusOptions, "Deployed");
+
     return {
       ...options,
-      project: cleanedProjectOptions
+      project: cleanedProjectOptions,
+      deviceCondition: normalizedDeviceConditionOptions,
+      deviceStatus: normalizedDeviceStatusOptions
     };
   };
 
@@ -163,13 +206,42 @@ const formatBytes = (size: number) => {
   return `${(size / (1024 * 1024)).toFixed(1)} MB`;
 };
 
-export const EmployeeForm = ({ editingRecord, onSubmit, onCancelEdit }: EmployeeFormProps) => {
+const deriveDeviceConditionFromHostname = (hostname: string): "New" | "Old" | "Aged" | null => {
+  const match = hostname.trim().match(/(\d{2})$/);
+  if (!match) {
+    return null;
+  }
+
+  const lastTwoDigits = Number(match[1]);
+  if (Number.isNaN(lastTwoDigits)) {
+    return null;
+  }
+
+  const manufacturedYear = 2000 + lastTwoDigits;
+  const age = new Date().getFullYear() - manufacturedYear;
+
+  if (age > 3) {
+    return "Aged";
+  }
+
+  if (age === 3) {
+    return "Old";
+  }
+
+  return "New";
+};
+
+export const EmployeeForm = ({ editingRecord, prefillRecord = null, onSubmit, onCancelEdit }: EmployeeFormProps) => {
   const persistedDropdownConfig = loadEmployeeDropdownConfig();
   const [form, setForm] = useState<AccountabilityRecord>(emptyRecord());
   const [errors, setErrors] = useState<string[]>([]);
   const [saving, setSaving] = useState(false);
   const [attachmentError, setAttachmentError] = useState("");
   const [isEditMode, setIsEditMode] = useState(false);
+  const [showOtherDeviceDialog, setShowOtherDeviceDialog] = useState(false);
+  const [otherDeviceDraft, setOtherDeviceDraft] = useState("");
+  const [previousDeviceType, setPreviousDeviceType] = useState("");
+  const [previousOtherSpecification, setPreviousOtherSpecification] = useState("");
   const [dropdownFields, setDropdownFields] = useState<Record<string, boolean>>(
     persistedDropdownConfig.dropdownFields
   );
@@ -178,7 +250,8 @@ export const EmployeeForm = ({ editingRecord, onSubmit, onCancelEdit }: Employee
   );
 
   useEffect(() => {
-    if (!editingRecord) {
+    const sourceRecord = editingRecord ?? prefillRecord;
+    if (!sourceRecord) {
       setForm(emptyRecord());
       setErrors([]);
       return;
@@ -187,17 +260,17 @@ export const EmployeeForm = ({ editingRecord, onSubmit, onCancelEdit }: Employee
     const base = emptyRecord();
     setForm({
       ...base,
-      ...editingRecord,
-      attachments: editingRecord.attachments ?? [],
-      assigneeSignature: editingRecord.assigneeSignature ?? base.assigneeSignature,
-      assigneeReturnedSignature: editingRecord.assigneeReturnedSignature ?? base.assigneeReturnedSignature,
-      phrSignature: editingRecord.phrSignature ?? base.phrSignature,
-      amldSignature: editingRecord.amldSignature ?? base.amldSignature,
-      itSignature: editingRecord.itSignature ?? base.itSignature,
-      catoSignature: editingRecord.catoSignature ?? base.catoSignature
+      ...sourceRecord,
+      attachments: sourceRecord.attachments ?? [],
+      assigneeSignature: sourceRecord.assigneeSignature ?? base.assigneeSignature,
+      assigneeReturnedSignature: sourceRecord.assigneeReturnedSignature ?? base.assigneeReturnedSignature,
+      phrSignature: sourceRecord.phrSignature ?? base.phrSignature,
+      amldSignature: sourceRecord.amldSignature ?? base.amldSignature,
+      itSignature: sourceRecord.itSignature ?? base.itSignature,
+      catoSignature: sourceRecord.catoSignature ?? base.catoSignature
     });
     setErrors([]);
-  }, [editingRecord]);
+  }, [editingRecord, prefillRecord]);
 
   useEffect(() => {
     localStorage.setItem(
@@ -211,7 +284,24 @@ export const EmployeeForm = ({ editingRecord, onSubmit, onCancelEdit }: Employee
     [form.firstName, form.middleName, form.lastName]
   );
 
+  useEffect(() => {
+    const derivedDeviceCondition = deriveDeviceConditionFromHostname(form.hostname);
+    if (!derivedDeviceCondition) {
+      return;
+    }
+
+    setForm((prev) =>
+      prev.deviceCondition === derivedDeviceCondition
+        ? prev
+        : {
+            ...prev,
+            deviceCondition: derivedDeviceCondition
+          }
+    );
+  }, [form.hostname]);
+
   const isPortableDevice = PORTABLE_DEVICE_TYPES.has(form.deviceType.trim().toLowerCase());
+  const isOtherDeviceType = form.deviceType.trim().toLowerCase() === "others";
 
   const validate = () => {
     const nextErrors: string[] = [];
@@ -228,6 +318,10 @@ export const EmployeeForm = ({ editingRecord, onSubmit, onCancelEdit }: Employee
 
     if (form.email.trim() && !emailRegex.test(form.email.trim())) {
       nextErrors.push("email must be a valid email address.");
+    }
+
+    if (isOtherDeviceType && !String(form.otherDeviceSpecification ?? "").trim()) {
+      nextErrors.push("please specify the equipment type when Device Type is Others.");
     }
 
     setErrors(nextErrors);
@@ -340,11 +434,21 @@ export const EmployeeForm = ({ editingRecord, onSubmit, onCancelEdit }: Employee
   };
 
   const handleFieldChange = (key: keyof AccountabilityRecord, value: string) => {
+    if (key === "hostname") {
+      const derivedDeviceCondition = deriveDeviceConditionFromHostname(value);
+      setForm((prev) => ({
+        ...prev,
+        hostname: value,
+        deviceCondition: derivedDeviceCondition ?? prev.deviceCondition
+      }));
+      return;
+    }
+
     if (key === "deviceType") {
       const nextDevice = value.trim().toLowerCase();
       if (PORTABLE_DEVICE_TYPES.has(nextDevice)) {
         setForm((prev) => {
-          const next = { ...prev, deviceType: value };
+          const next = { ...prev, deviceType: value, otherDeviceSpecification: "" };
           EXCLUDED_ON_PORTABLE.forEach((fieldKey) => {
             next[fieldKey] = "" as never;
           });
@@ -352,12 +456,48 @@ export const EmployeeForm = ({ editingRecord, onSubmit, onCancelEdit }: Employee
         });
         return;
       }
+
+      if (nextDevice === "others") {
+        setPreviousDeviceType(form.deviceType);
+        setPreviousOtherSpecification(String(form.otherDeviceSpecification ?? ""));
+        setOtherDeviceDraft(String(form.otherDeviceSpecification ?? ""));
+        setForm((prev) => ({
+          ...prev,
+          deviceType: value
+        }));
+        setShowOtherDeviceDialog(true);
+        return;
+      }
+
+      setForm((prev) => ({
+        ...prev,
+        deviceType: value,
+        otherDeviceSpecification: ""
+      }));
+      return;
     }
 
     setForm((prev) => ({
       ...prev,
       [key]: value
     }));
+  };
+
+  const handleConfirmOtherDeviceSpecification = () => {
+    setForm((prev) => ({
+      ...prev,
+      otherDeviceSpecification: otherDeviceDraft.trim()
+    }));
+    setShowOtherDeviceDialog(false);
+  };
+
+  const handleCancelOtherDeviceSpecification = () => {
+    setForm((prev) => ({
+      ...prev,
+      deviceType: previousDeviceType,
+      otherDeviceSpecification: previousOtherSpecification
+    }));
+    setShowOtherDeviceDialog(false);
   };
 
   const handleAddSelectOption = (key: keyof AccountabilityRecord, label: string) => {
@@ -477,6 +617,11 @@ export const EmployeeForm = ({ editingRecord, onSubmit, onCancelEdit }: Employee
         {isEditMode ? "Done" : "Edit"}
       </button>
       <p className="helper-text">Full Name Preview: <strong>{fullName || "-"}</strong></p>
+      <p className="helper-text">
+        Signature Workflow Status: <strong>{form.workflowStatus || "Pending Employee Signature"}</strong>
+        {" • "}
+        Routed To: <strong>{form.signatureRouteTo || form.email || fullName || "Employee/User"}</strong>
+      </p>
 
       {errors.length > 0 && (
         <div className="error-box">
@@ -502,7 +647,7 @@ export const EmployeeForm = ({ editingRecord, onSubmit, onCancelEdit }: Employee
               )
             : [];
           return (
-            <label key={key} className="field">
+            <label key={String(key)} className="field">
               <span>
                 {label}
                 {required ? " *" : ""}
@@ -550,7 +695,7 @@ export const EmployeeForm = ({ editingRecord, onSubmit, onCancelEdit }: Employee
                     onChange={(e) =>
                       handleFieldChange(key, e.target.value)
                     }
-                    placeholder={label}
+                    placeholder={key === "cato" ? "" : label}
                   />
                   <button
                     type="button"
@@ -689,15 +834,61 @@ export const EmployeeForm = ({ editingRecord, onSubmit, onCancelEdit }: Employee
 
         <div className="actions">
           <button type="submit" disabled={saving}>
-            {saving ? "Saving..." : editingRecord ? "Update Record" : "Save Record"}
+            {saving ? "Saving..." : editingRecord ? "Update Record" : prefillRecord ? "Create Reassignment Record" : "Save Record"}
           </button>
-          {editingRecord && (
+          {(editingRecord || prefillRecord) && (
             <button type="button" className="ghost" onClick={onCancelEdit}>
               Cancel Edit
             </button>
           )}
         </div>
       </form>
+
+      {showOtherDeviceDialog && (
+        <div
+          className="history-modal-backdrop"
+          role="presentation"
+          onClick={handleCancelOtherDeviceSpecification}
+        >
+          <section
+            className="history-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="other-device-dialog-title"
+            onClick={(event) => event.stopPropagation()}
+            style={{ width: "min(520px, 100%)" }}
+          >
+            <header className="history-modal-header">
+              <div>
+                <h3 id="other-device-dialog-title">Specify Other Equipment Type</h3>
+                <p className="helper-text">Provide equipment type for Device Type = Others.</p>
+              </div>
+            </header>
+
+            <div className="history-modal-body">
+              <label className="field">
+                <span>Equipment Type *</span>
+                <input
+                  type="text"
+                  value={otherDeviceDraft}
+                  onChange={(event) => setOtherDeviceDraft(event.target.value)}
+                  placeholder="e.g. Docking station"
+                  autoFocus
+                />
+              </label>
+
+              <div className="actions" style={{ justifyContent: "flex-end" }}>
+                <button type="button" className="ghost" onClick={handleCancelOtherDeviceSpecification}>
+                  Cancel
+                </button>
+                <button type="button" onClick={handleConfirmOtherDeviceSpecification}>
+                  Apply
+                </button>
+              </div>
+            </div>
+          </section>
+        </div>
+      )}
     </section>
   );
 };

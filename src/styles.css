@@ -1461,6 +1461,10 @@ button:disabled {
   min-height: 400px;
 }
 
+.records-main > h2 {
+  text-align: center;
+}
+
 .sidebar-btn {
   width: 56px;
   height: 56px;
@@ -1585,13 +1589,95 @@ td {
 .row-actions {
   display: flex;
   gap: 0.35rem;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
+  align-items: center;
 }
 
 .row-actions button {
   padding: 0.38rem 0.55rem;
   font-size: 0.75rem;
   color: #111111;
+  white-space: nowrap;
+}
+
+.history-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1200;
+  background: rgba(15, 23, 42, 0.4);
+  display: grid;
+  place-items: center;
+  padding: 1rem;
+}
+
+.history-modal {
+  width: min(920px, 100%);
+  max-height: 82vh;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--panel);
+  color: var(--ink);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.history-modal-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.8rem;
+  padding: 1rem 1rem 0.85rem;
+  border-bottom: 1px solid var(--line);
+}
+
+.history-modal-header h3 {
+  margin: 0;
+}
+
+.history-modal-header .helper-text {
+  margin: 0.2rem 0 0;
+}
+
+.history-modal-body {
+  padding: 0.95rem 1rem 1rem;
+  overflow: auto;
+  display: grid;
+  gap: 0.85rem;
+}
+
+.history-section {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 0.75rem;
+  background: var(--panel-soft);
+}
+
+.history-section h4 {
+  margin: 0 0 0.55rem;
+  font-size: 0.94rem;
+}
+
+.history-section ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 0.45rem;
+}
+
+.history-section li {
+  border: 1px solid var(--line);
+  background: var(--panel);
+  border-radius: 8px;
+  padding: 0.5rem 0.58rem;
+  display: grid;
+  gap: 0.12rem;
+}
+
+.history-section li span {
+  color: var(--muted);
+  font-size: 0.8rem;
 }
 
 .accountability-table,
@@ -1657,6 +1743,53 @@ td {
   border-radius: 12px;
   background: #ffffff;
   padding: 0.85rem;
+}
+
+.inventory-chart-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.85rem;
+  margin-bottom: 0.85rem;
+}
+
+.inventory-chart-header .helper-text {
+  margin-bottom: 0;
+}
+
+.inventory-chart-filter {
+  display: grid;
+  gap: 0.55rem;
+  min-width: 220px;
+  max-width: 360px;
+  width: 100%;
+}
+
+.inventory-chart-filter-control {
+  position: relative;
+}
+
+.inventory-chart-filter-control select {
+  padding-left: 2.35rem;
+}
+
+.inventory-chart-filter-icon {
+  position: absolute;
+  top: 50%;
+  left: 0.75rem;
+  transform: translateY(-50%);
+  width: 1.05rem;
+  height: 1.05rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+  opacity: 0.75;
+}
+
+.inventory-chart-filter-icon svg {
+  width: 100%;
+  height: 100%;
 }
 
 .inventory-pie-layout {
@@ -3036,6 +3169,8 @@ td {
   .form-grid { grid-template-columns: 1fr; }
   .filters { grid-template-columns: 1fr 1fr; }
   .inventory-toolbar { grid-template-columns: 1fr 1fr; }
+  .inventory-chart-header { flex-direction: column; }
+  .inventory-chart-filter { min-width: 0; max-width: 100%; }
   .inventory-pie-layout { grid-template-columns: 1fr; }
 }
 

@@ -1,8 +1,10 @@
 import { useMemo, useState } from "react";
 import { AccountabilityRecord } from "../../accountability/types/accountability";
+import { DeliveryReceiptRecord } from "../../accountability/types/deliveryReceipt";
 
 interface ITAssetInventoryProps {
   records: AccountabilityRecord[];
+  newItemRecords: DeliveryReceiptRecord[];
   loading: boolean;
   onRefresh: () => Promise<void> | void;
 }
@@ -40,7 +42,7 @@ const readProjectOptionsFromEmployeeForm = () => {
   }
 };
 
-export const ITAssetInventory = ({ records, loading, onRefresh }: ITAssetInventoryProps) => {
+export const ITAssetInventory = ({ records, newItemRecords, loading, onRefresh }: ITAssetInventoryProps) => {
   const [hostnameSearch, setHostnameSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
   const [deviceTypeFilter, setDeviceTypeFilter] = useState("");
@@ -158,6 +160,7 @@ export const ITAssetInventory = ({ records, loading, onRefresh }: ITAssetInvento
                 <th>Employee</th>
                 <th>Device Type</th>
                 <th>Status</th>
+                <th>Device Status</th>
                 <th>Project</th>
                 <th>Serial Number</th>
                 <th>Asset Number</th>
@@ -171,6 +174,7 @@ export const ITAssetInventory = ({ records, loading, onRefresh }: ITAssetInvento
                   <td>{[record.firstName, record.lastName].filter(Boolean).join(" ")}</td>
                   <td>{record.deviceType || "-"}</td>
                   <td>{record.deviceCondition || "-"}</td>
+                  <td>{record.deviceStatus || "-"}</td>
                   <td>{record.project || "-"}</td>
                   <td>{record.serialNumber || "-"}</td>
                   <td>{record.deviceAssetNumber || "-"}</td>
@@ -179,7 +183,7 @@ export const ITAssetInventory = ({ records, loading, onRefresh }: ITAssetInvento
               ))}
               {filtered.length === 0 && (
                 <tr>
-                  <td colSpan={8}>No assets found for current filters.</td>
+                  <td colSpan={9}>No assets found for current filters.</td>
                 </tr>
               )}
             </tbody>
@@ -187,6 +191,49 @@ export const ITAssetInventory = ({ records, loading, onRefresh }: ITAssetInvento
         </div>
 
         {loading && <p className="warning-text">Refreshing records...</p>}
+      </section>
+
+      <section className="inventory-table-card" style={{ marginTop: "0.85rem" }}>
+        <h3 style={{ margin: "0 0 0.65rem", fontSize: "1rem", fontWeight: 700 }}>New Item Records</h3>
+        <p className="helper-text" style={{ marginBottom: "0.75rem" }}>
+          Data entered from the New Item module is listed here.
+        </p>
+
+        <div className="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Invoice Number</th>
+                <th>Purchase Number</th>
+                <th>Supplier</th>
+                <th>Delivery Date</th>
+                <th>Item Description</th>
+                <th>Warranty</th>
+                <th>Other Details</th>
+                <th>Updated</th>
+              </tr>
+            </thead>
+            <tbody>
+              {newItemRecords.map((record) => (
+                <tr key={record.id}>
+                  <td>{record.invoiceNumber || "-"}</td>
+                  <td>{record.purchaseNumber || "-"}</td>
+                  <td>{record.supplier || "-"}</td>
+                  <td>{record.deliveryDate || "-"}</td>
+                  <td>{record.itemDescription || "-"}</td>
+                  <td>{record.warranty || "-"}</td>
+                  <td>{record.otherDetails || "-"}</td>
+                  <td>{record.updatedAt ? new Date(record.updatedAt).toLocaleString() : "-"}</td>
+                </tr>
+              ))}
+              {newItemRecords.length === 0 && (
+                <tr>
+                  <td colSpan={8}>No New Item records found yet.</td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
       </section>
     </section>
   );

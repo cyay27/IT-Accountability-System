@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { AccountabilityRecord } from "../../accountability/types/accountability";
 
 interface ITAssetChartProps {
@@ -17,10 +17,33 @@ const DEVICE_COLORS: Record<string, string> = {
 const getDeviceColor = (label: string) => DEVICE_COLORS[label.trim().toLowerCase()] ?? "#0ea5e9";
 
 export const ITAssetChart = ({ records }: ITAssetChartProps) => {
+  const [projectFilter, setProjectFilter] = useState("");
+  const [deviceTypeFilter, setDeviceTypeFilter] = useState("");
+
+  const projectOptions = useMemo(() => {
+    return Array.from(new Set(records.map((item) => item.project).filter(Boolean))).sort((a, b) =>
+      a.localeCompare(b)
+    );
+  }, [records]);
+
+  const deviceTypeOptions = useMemo(() => {
+    return Array.from(new Set(records.map((item) => item.deviceType).filter(Boolean))).sort((a, b) =>
+      a.localeCompare(b)
+    );
+  }, [records]);
+
+  const filteredRecords = useMemo(() => {
+    return records.filter((item) => {
+      const byProject = !projectFilter || item.project === projectFilter;
+      const byDeviceType = !deviceTypeFilter || item.deviceType === deviceTypeFilter;
+      return byProject && byDeviceType;
+    });
+  }, [records, projectFilter, deviceTypeFilter]);
+
   const chart = useMemo(() => {
     const counts = new Map<string, number>();
 
-    records.forEach((item) => {
+    filteredRecords.forEach((item) => {
       const key = item.deviceType?.trim() || "Unspecified";
       counts.set(key, (counts.get(key) ?? 0) + 1);
     });
@@ -57,12 +80,46 @@ export const ITAssetChart = ({ records }: ITAssetChartProps) => {
       total,
       pie: `conic-gradient(${segments.join(", ")})`
     };
-  }, [records]);
+  }, [filteredRecords]);
 
   return (
     <section className="panel">
-      <h2>Asset Chart</h2>
-      <p className="helper-text">Pie chart distribution by device type.</p>
+      <div className="inventory-chart-header">
+        <div>
+          <h2>Asset Chart</h2>
+          <p className="helper-text">Pie chart distribution by device type.</p>
+        </div>
+
+        <div className="inventory-chart-filter">
+          <div className="inventory-chart-filter-control">
+            <span className="inventory-chart-filter-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none">
+                <path d="M4 6h16l-6.5 7.1V18l-3 1.8v-6.7L4 6Z" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" />
+              </svg>
+            </span>
+            <select value={projectFilter} onChange={(event) => setProjectFilter(event.target.value)}>
+              <option value="">All Projects</option>
+              {projectOptions.map((option) => (
+                <option key={option} value={option}>{option}</option>
+              ))}
+            </select>
+          </div>
+
+          <div className="inventory-chart-filter-control">
+            <span className="inventory-chart-filter-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none">
+                <path d="M4 6h16l-6.5 7.1V18l-3 1.8v-6.7L4 6Z" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" />
+              </svg>
+            </span>
+            <select value={deviceTypeFilter} onChange={(event) => setDeviceTypeFilter(event.target.value)}>
+              <option value="">All Device Types</option>
+              {deviceTypeOptions.map((option) => (
+                <option key={option} value={option}>{option}</option>
+              ))}
+            </select>
+          </div>
+        </div>
+      </div>
 
       <div className="inventory-pie-layout">
         <div className="inventory-pie-wrap">

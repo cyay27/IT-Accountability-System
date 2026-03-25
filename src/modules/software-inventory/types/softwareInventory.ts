@@ -6,6 +6,7 @@ export interface SoftwareSignatureField {
 
 export interface SoftwareInventoryRecord {
   id?: string;
+  sourceAccountabilityRecordId?: string;
   formNo: string;
   softwareName: string;
   softwareVersion: string;

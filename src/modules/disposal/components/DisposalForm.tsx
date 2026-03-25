@@ -396,7 +396,7 @@ export const DisposalForm = ({ editingRecord, onSubmit, onCancelEdit }: Disposal
                         [key]: event.target.value
                       }))
                     }
-                    placeholder={label}
+                    placeholder={key === "disposalNo" ? "UMAC" : label}
                   />
                   <button
                     type="button"

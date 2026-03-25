@@ -9,6 +9,7 @@ import { SignaturePad } from "../../accountability/components/SignaturePad";
 interface SoftwareInventoryFormProps {
   editingRecord: SoftwareInventoryRecord | null;
   onSubmit: (record: SoftwareInventoryRecord) => Promise<void>;
+  softwareNameOptionsFromAccountability?: string[];
   projectOptionsFromAccountability?: string[];
   departmentOptionsFromAccountability?: string[];
   onCancelEdit: () => void;
@@ -153,6 +154,7 @@ const loadSoftwareDropdownConfig = () => {
 
 export const SoftwareInventoryForm = ({
   editingRecord,
+  softwareNameOptionsFromAccountability = [],
   projectOptionsFromAccountability = [],
   departmentOptionsFromAccountability = [],
   onSubmit,
@@ -201,11 +203,12 @@ export const SoftwareInventoryForm = ({
 
       return {
         ...prev,
+        softwareName: normalize([...(prev.softwareName ?? [""]), ...softwareNameOptionsFromAccountability]),
         project: normalize([...(prev.project ?? [""]), ...projectOptionsFromAccountability]),
         department: normalize([...(prev.department ?? [""]), ...departmentOptionsFromAccountability])
       };
     });
-  }, [projectOptionsFromAccountability, departmentOptionsFromAccountability]);
+  }, [softwareNameOptionsFromAccountability, projectOptionsFromAccountability, departmentOptionsFromAccountability]);
 
   const handleSignatureSave = (
     role: "prepared" | "approved",
