@@ -73,13 +73,13 @@ export const HeaderBar = ({
           >
             <span className="avatar-dot" aria-hidden="true">
               <svg viewBox="0 0 24 24" width="13" height="13" fill="none">
-                <circle cx="12" cy="8" r="3" stroke="#111111" strokeWidth="1.8" />
-                <path d="M6.5 18c.45-2.45 2.45-4 5.5-4s5.05 1.55 5.5 4" stroke="#111111" strokeWidth="1.8" strokeLinecap="round" />
+                <circle cx="12" cy="8" r="3" stroke="currentColor" strokeWidth="1.8" />
+                <path d="M6.5 18c.45-2.45 2.45-4 5.5-4s5.05 1.55 5.5 4" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
               </svg>
             </span>
             <span className="header-menu-indicator" aria-hidden="true">
               <svg viewBox="0 0 12 12" width="10" height="10" fill="none">
-                <path d="M3 4.5 6 7.5 9 4.5" stroke="#111111" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+                <path d="M3 4.5 6 7.5 9 4.5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
               </svg>
             </span>
           </button>

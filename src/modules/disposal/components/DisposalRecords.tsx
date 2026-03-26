@@ -9,7 +9,7 @@ interface DisposalRecordsProps {
   onPrint: (record: DisposalRecord) => void;
 }
 
-const normalize = (value: string) => value.trim().toLowerCase();
+const normalize = (value?: string) => String(value ?? "").trim().toLowerCase();
 
 export const DisposalRecords = ({ records, onEdit, onDelete, onView, onPrint }: DisposalRecordsProps) => {
   const [search, setSearch] = useState("");
@@ -51,7 +51,7 @@ export const DisposalRecords = ({ records, onEdit, onDelete, onView, onPrint }: 
         <input
           value={search}
           onChange={(event) => setSearch(event.target.value)}
-          placeholder="Search by disposal no, device, serial..."
+          placeholder="Search by UMAC no, device, serial..."
         />
 
         <select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}>
@@ -68,7 +68,7 @@ export const DisposalRecords = ({ records, onEdit, onDelete, onView, onPrint }: 
         <table>
           <thead>
             <tr>
-              <th>Disposal No.</th>
+              <th>UMAC No.</th>
               <th>Department</th>
               <th>Device Type</th>
               <th>Serial Number</th>

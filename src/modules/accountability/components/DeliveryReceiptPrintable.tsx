@@ -24,7 +24,7 @@ export const DeliveryReceiptPrintable = forwardRef<
 
   return (
     <section className="panel print-shell">
-      <h2 className="no-print">Delivery Receipt Printable Preview</h2>
+      <h2 className="no-print">Delivery Receipt Printable</h2>
 
       <div className="print-form print-form--a4 receipt-container" ref={ref}>
         {/* Receipt Header */}

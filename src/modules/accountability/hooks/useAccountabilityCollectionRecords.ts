@@ -77,42 +77,56 @@ export const useAccountabilityCollectionRecords = (
     void loadRecords();
   }, [loadRecords]);
 
-  const upsertRecord = async (record: AccountabilityRecord) => {
-    const id = record.id ?? crypto.randomUUID();
-    const payload: AccountabilityRecord = {
-      ...record,
-      id,
-      createdAt: record.createdAt ?? stampNow(),
-      updatedAt: stampNow()
-    };
+  const upsertRecord = useCallback(
+    async (record: AccountabilityRecord) => {
+      const id = record.id ?? crypto.randomUUID();
+      const payload: AccountabilityRecord = {
+        ...record,
+        id,
+        createdAt: record.createdAt ?? stampNow(),
+        updatedAt: stampNow()
+      };
 
-    if (useLocalMode) {
-      const existing = readLocal();
-      const withoutCurrent = existing.filter((item) => item.id !== id);
-      const next = sortByUpdatedAt([{ ...payload, id }, ...withoutCurrent]);
-      setRecords(next);
-      writeLocal(next);
-      return;
-    }
+      if (useLocalMode) {
+        const existing = readLocal();
+        const withoutCurrent = existing.filter((item) => item.id !== id);
+        const next = sortByUpdatedAt([{ ...payload, id }, ...withoutCurrent]);
+        setRecords(next);
+        writeLocal(next);
+        return;
+      }
 
-    await setDoc(doc(db, collectionName, id), payload, { merge: true });
-    setRecords((prev) => {
-      const withoutCurrent = prev.filter((item) => item.id !== id);
-      return sortByUpdatedAt([{ ...payload, id }, ...withoutCurrent]);
-    });
-  };
+      setRecords((prev) => {
+        const withoutCurrent = prev.filter((item) => item.id !== id);
+        return sortByUpdatedAt([{ ...payload, id }, ...withoutCurrent]);
+      });
 
-  const removeRecord = async (id: string) => {
-    if (useLocalMode) {
-      const next = readLocal().filter((item) => item.id !== id);
-      setRecords(next);
-      writeLocal(next);
-      return;
-    }
+      void setDoc(doc(db, collectionName, id), payload, { merge: true }).catch(() => {
+        setError(loadErrorMessage);
+        void loadRecords();
+      });
+    },
+    [collectionName, loadErrorMessage, loadRecords, readLocal, useLocalMode, writeLocal]
+  );
 
-    await deleteDoc(doc(db, collectionName, id));
-    setRecords((prev) => prev.filter((item) => item.id !== id));
-  };
+  const removeRecord = useCallback(
+    async (id: string) => {
+      if (useLocalMode) {
+        const next = readLocal().filter((item) => item.id !== id);
+        setRecords(next);
+        writeLocal(next);
+        return;
+      }
+
+      setRecords((prev) => prev.filter((item) => item.id !== id));
+
+      void deleteDoc(doc(db, collectionName, id)).catch(() => {
+        setError(loadErrorMessage);
+        void loadRecords();
+      });
+    },
+    [collectionName, loadErrorMessage, loadRecords, readLocal, useLocalMode, writeLocal]
+  );
 
   return {
     records,

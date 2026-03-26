@@ -11,7 +11,7 @@ export const ReturnedAssetsPrintable = forwardRef<HTMLDivElement, ReturnedAssets
   ({ records }, ref) => {
     return (
       <section className="panel print-shell">
-        <h2 className="no-print">Returned Assets Printable Preview</h2>
+        <h2 className="no-print">Returned Assets Printable</h2>
 
         <div className="print-form" ref={ref}>
           <header className="print-header">

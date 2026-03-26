@@ -71,6 +71,7 @@ export interface AccountabilityRecord {
   costCenter: string;
   projectLocation: string;
   employmentStatus: string;
+  transferDecision?: string;
   deviceType: string;
   otherDeviceSpecification?: string;
   deviceDescription: string;
@@ -136,6 +137,7 @@ export const emptyRecord = (): AccountabilityRecord => ({
   costCenter: "",
   projectLocation: "",
   employmentStatus: "",
+  transferDecision: "",
   deviceType: "",
   otherDeviceSpecification: "",
   deviceDescription: "",

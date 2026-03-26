@@ -65,6 +65,118 @@ const trimRecord = (record: AccountabilityRecord): AccountabilityRecord => {
   return next;
 };
 
+const RESIGNED_KEYWORDS = ["resign", "resigned", "terminated", "separated", "inactive"];
+const TRANSFERRED_KEYWORDS = ["transfer", "transferred"];
+const TRANSFER_DECISION_GOES_WITH_USER = "device goes with user";
+const TRANSFER_DECISION_STAYS_REASSIGNED = "device stays and is reassigned";
+
+const buildHolderName = (record: AccountabilityRecord) =>
+  [record.firstName, record.middleName, record.lastName]
+    .map((value) => String(value ?? "").trim())
+    .filter(Boolean)
+    .join(" ");
+
+const isTransferDecisionReassign = (value?: string) => {
+  const normalized = String(value ?? "").trim().toLowerCase();
+  return normalized === TRANSFER_DECISION_STAYS_REASSIGNED || normalized.includes("reassign");
+};
+
+const isTransferDecisionKeepDevice = (value?: string) => {
+  const normalized = String(value ?? "").trim().toLowerCase();
+  return normalized === TRANSFER_DECISION_GOES_WITH_USER;
+};
+
+const isClosedReassignedWorkflow = (value?: string) =>
+  String(value ?? "").trim().toLowerCase() === "closed - reassigned";
+
+const appendStatusDecisionHistory = (record: AccountabilityRecord): AccountabilityRecord => {
+  const now = new Date().toISOString();
+  const nextHistory = [...(record.history ?? [])];
+
+  if (isResignedEmploymentStatus(record.employmentStatus)) {
+    nextHistory.push({
+      id: crypto.randomUUID(),
+      action: "returned",
+      summary: "Asset returned due to employee resignation.",
+      timestamp: now
+    });
+  }
+
+  if (isTransferredEmploymentStatus(record.employmentStatus)) {
+    if (isTransferDecisionKeepDevice(record.transferDecision)) {
+      nextHistory.push({
+        id: crypto.randomUUID(),
+        action: "updated",
+        summary: "Device retained by user due to project transfer.",
+        timestamp: now
+      });
+    }
+
+    if (isTransferDecisionReassign(record.transferDecision)) {
+      nextHistory.push({
+        id: crypto.randomUUID(),
+        action: "returned",
+        summary: "Asset marked returned for reassignment due to project transfer.",
+        timestamp: now
+      });
+    }
+  }
+
+  if (nextHistory.length === (record.history ?? []).length) {
+    return record;
+  }
+
+  return {
+    ...record,
+    history: nextHistory
+  };
+};
+
+const isResignedEmploymentStatus = (value?: string) => {
+  const normalized = String(value ?? "").trim().toLowerCase();
+  return RESIGNED_KEYWORDS.some((keyword) => normalized.includes(keyword));
+};
+
+const isTransferredEmploymentStatus = (value?: string) => {
+  const normalized = String(value ?? "").trim().toLowerCase();
+  return TRANSFERRED_KEYWORDS.some((keyword) => normalized.includes(keyword));
+};
+
+const applyEmployeeStatusRules = (record: AccountabilityRecord): AccountabilityRecord => {
+  const normalizedDeviceStatus = String(record.deviceStatus ?? "").trim().toLowerCase();
+  const normalizedReturnedDate = String(record.returnedDate ?? "").trim();
+  const nextDeviceStatus = normalizedDeviceStatus === "defective" ? "Defective" : "Active";
+  const today = new Date().toISOString().split("T")[0];
+
+  if (isResignedEmploymentStatus(record.employmentStatus)) {
+    return {
+      ...record,
+      deviceStatus: nextDeviceStatus,
+      returnedDate: normalizedReturnedDate || today
+    };
+  }
+
+  if (isTransferredEmploymentStatus(record.employmentStatus)) {
+    if (isTransferDecisionReassign(record.transferDecision)) {
+      return {
+        ...record,
+        deviceStatus: nextDeviceStatus,
+        returnedDate: normalizedReturnedDate || today
+      };
+    }
+
+    if (isTransferDecisionKeepDevice(record.transferDecision)) {
+      return {
+        ...record,
+        deviceStatus: "Deployed",
+        returnedDate: ""
+      };
+    }
+  }
+
+  return record;
+};
+
 const DELIVERY_RECEIPT_STORAGE_KEY = "ias:delivery-receipt-records";
 
 const readDeliveryReceiptRecords = (): DeliveryReceiptRecord[] => {
@@ -111,22 +223,23 @@ function App() {
   const [selectedModule, setSelectedModule] = useState<ModuleKey | null>(null);
   const {
     records,
+    loading: accountabilityLoading,
     error: accountabilityError,
     useLocalMode,
     createRecord,
     updateRecord,
-    removeRecord
+    removeRecord,
+    reload: reloadAccountabilityRecords
   } =
     useAccountabilityRecords();
   const [editingRecord, setEditingRecord] = useState<AccountabilityRecord | null>(null);
+  const [prefillRecord, setPrefillRecord] = useState<AccountabilityRecord | null>(null);
   const [selectedRecord, setSelectedRecord] = useState<AccountabilityRecord | null>(null);
   const {
     records: assetInventoryRecords,
-    loading: assetInventoryLoading,
     error: assetInventoryError,
     upsertRecord: upsertAssetInventoryRecord,
     removeRecord: removeAssetInventoryRecord,
-    reload: reloadAssetInventoryRecords
   } = useAssetInventoryRecords();
   const {
     records: ipadInventoryRecords,
@@ -169,10 +282,8 @@ function App() {
   const [pendingIpadPrint, setPendingIpadPrint] = useState(false);
   const [pendingReturnedAssetsPrint, setPendingReturnedAssetsPrint] = useState(false);
   const [pendingDisposalPrint, setPendingDisposalPrint] = useState(false);
-  const [sectionCollectionsBackfilled, setSectionCollectionsBackfilled] = useState(false);
   const {
     records: disposalRecords,
-    loading: disposalLoading,
     error: disposalError,
     createRecord: createDisposalRecord,
     updateRecord: updateDisposalRecord,
@@ -196,6 +307,7 @@ function App() {
   const ipadPrintRef = useRef<HTMLDivElement>(null);
   const returnedAssetsPrintRef = useRef<HTMLDivElement>(null);
   const disposalPrintRef = useRef<HTMLDivElement>(null);
+  const lastReturnedAssetsSyncKeyRef = useRef<Record<string, string>>({});
 
   useEffect(() => {
     if (!isFirebaseConfigured || !isAdminUidConfigured) {
@@ -299,26 +411,41 @@ function App() {
       : "IT-Disposal"
   });
 
-  const syncSectionRecordsForAccountability = async (record: AccountabilityRecord) => {
+  const syncReturnedAssetsForAccountability = async (record: AccountabilityRecord) => {
     const id = record.id;
     if (!id) return;
 
-    await upsertAssetInventoryRecord({ ...record, id });
-
-    if (record.deviceType.trim().toLowerCase() === "ipad") {
-      await upsertIpadInventoryRecord({ ...record, id });
-    } else {
-      await removeIpadInventoryRecord(id);
-    }
-
     const normalizedDeviceStatus = (record.deviceStatus ?? "").trim().toLowerCase();
-    const shouldStayInReturnedAssets = Boolean(record.returnedDate?.trim()) && normalizedDeviceStatus !== "deployed";
+    const shouldStayInReturnedAssets =
+      Boolean(record.returnedDate?.trim()) &&
+      normalizedDeviceStatus !== "deployed" &&
+      !isClosedReassignedWorkflow(record.workflowStatus);
 
     if (shouldStayInReturnedAssets) {
       await upsertReturnedAssetsRecord({ ...record, id });
-    } else {
-      await removeReturnedAssetsRecord(id);
+      return;
     }
+
+    await removeReturnedAssetsRecord(id);
+  };
+
+  const syncSectionRecordsForAccountability = async (
+    record: AccountabilityRecord,
+    options?: { skipReturnedAssetsSync?: boolean }
+  ) => {
+    const id = record.id;
+    if (!id) return;
+
+    const inventorySyncTask = upsertAssetInventoryRecord({ ...record, id });
+
+    const ipadSyncTask =
+      record.deviceType.trim().toLowerCase() === "ipad"
+        ? upsertIpadInventoryRecord({ ...record, id })
+        : removeIpadInventoryRecord(id);
+
+    const returnedAssetsSyncTask = options?.skipReturnedAssetsSync
+      ? Promise.resolve()
+      : syncReturnedAssetsForAccountability(record);
 
     const linkedDisposalRecord = disposalRecords.find(
       (item) => item.sourceAccountabilityRecordId === id
@@ -329,108 +456,147 @@ function App() {
       .join(" ");
     const today = new Date().toISOString().split("T")[0];
 
-    if (isForDisposal) {
-      const syncedDisposalRecord: DisposalRecord = {
-        id: linkedDisposalRecord?.id ?? "",
-        sourceAccountabilityRecordId: id,
-        disposalNo: linkedDisposalRecord?.disposalNo || record.no || `AUTO-${record.empId || id.slice(0, 8)}`,
-        empId: record.empId || "",
-        employeeName: employeeName || linkedDisposalRecord?.employeeName || "",
-        department: record.department || "",
-        project: record.project || "",
-        deviceType: record.deviceType || "",
-        serialNumber: record.serialNumber || "",
-        assetNumber: record.deviceAssetNumber || "",
-        conditionAtDisposal: linkedDisposalRecord?.conditionAtDisposal || "",
-        disposalReason: linkedDisposalRecord?.disposalReason || "",
-        recommendedAction: linkedDisposalRecord?.recommendedAction || "",
-        dataWipeRequired: linkedDisposalRecord?.dataWipeRequired || "No",
-        status: linkedDisposalRecord?.status || "Draft",
-        requestedBy: linkedDisposalRecord?.requestedBy || employeeName || "",
-        approvedBy: linkedDisposalRecord?.approvedBy || "",
-        requestedDate: linkedDisposalRecord?.requestedDate || today,
-        disposalDate: linkedDisposalRecord?.disposalDate || "",
-        notes: linkedDisposalRecord?.notes || "Synced from IT Accountability Form",
-        createdAt: linkedDisposalRecord?.createdAt || "",
-        updatedAt: linkedDisposalRecord?.updatedAt || ""
-      };
+    const disposalSyncTask = (async () => {
+      if (isForDisposal) {
+        const syncedDisposalRecord: DisposalRecord = {
+          id: linkedDisposalRecord?.id ?? "",
+          sourceAccountabilityRecordId: id,
+          disposalNo: linkedDisposalRecord?.disposalNo || record.no || `AUTO-${record.empId || id.slice(0, 8)}`,
+          empId: record.empId || "",
+          employeeName: employeeName || linkedDisposalRecord?.employeeName || "",
+          department: record.department || "",
+          project: record.project || "",
+          deviceType: record.deviceType || "",
+          serialNumber: record.serialNumber || "",
+          assetNumber: record.deviceAssetNumber || "",
+          conditionAtDisposal: linkedDisposalRecord?.conditionAtDisposal || "",
+          disposalReason: linkedDisposalRecord?.disposalReason || "",
+          recommendedAction: linkedDisposalRecord?.recommendedAction || "",
+          dataWipeRequired: linkedDisposalRecord?.dataWipeRequired || "No",
+          status: linkedDisposalRecord?.status || "Draft",
+          requestedBy: linkedDisposalRecord?.requestedBy || employeeName || "",
+          approvedBy: linkedDisposalRecord?.approvedBy || "",
+          requestedDate: linkedDisposalRecord?.requestedDate || today,
+          disposalDate: linkedDisposalRecord?.disposalDate || "",
+          notes: linkedDisposalRecord?.notes || "Synced from IT Accountability Form",
+          createdAt: linkedDisposalRecord?.createdAt || "",
+          updatedAt: linkedDisposalRecord?.updatedAt || ""
+        };
+
+        if (linkedDisposalRecord?.id) {
+          await updateDisposalRecord(linkedDisposalRecord.id, syncedDisposalRecord);
+          return;
+        }
+
+        await createDisposalRecord(syncedDisposalRecord);
+        return;
+      }
 
       if (linkedDisposalRecord?.id) {
-        await updateDisposalRecord(linkedDisposalRecord.id, syncedDisposalRecord);
-      } else {
-        await createDisposalRecord(syncedDisposalRecord);
+        await removeDisposalRecord(linkedDisposalRecord.id);
       }
-    } else if (linkedDisposalRecord?.id) {
-      await removeDisposalRecord(linkedDisposalRecord.id);
-    }
+    })();
 
-    const linkedSoftwareRecord = softwareRecords.find(
+    const linkedSoftwareRecords = softwareRecords.filter(
       (item) => item.sourceAccountabilityRecordId === id
     );
-    const hasSoftwareName = Boolean(record.softwareName.trim());
+    const softwareNames = record.softwareName
+      .split(/[\n,]/)
+      .map((item) => item.trim())
+      .filter(Boolean);
+    const softwareLicenses = record.softwareLicense
+      .split(/[\n,]/)
+      .map((item) => item.trim());
+    const hasSoftwareName = softwareNames.length > 0;
 
-    if (hasSoftwareName) {
-      const syncedSoftwareRecord: SoftwareInventoryRecord = {
-        sourceAccountabilityRecordId: id,
-        formNo: record.no || "",
-        softwareName: record.softwareName || "",
-        softwareVersion: "",
-        vendor: "",
-        licenseType: linkedSoftwareRecord?.licenseType || "N/A",
-        licenseReference: record.softwareLicense || "",
-        seatsPurchased: linkedSoftwareRecord?.seatsPurchased || "",
-        seatsUsed: linkedSoftwareRecord?.seatsUsed || "",
-        assignedTo: [record.firstName, record.middleName, record.lastName].filter(Boolean).join(" "),
-        employeeId: record.empId || "",
-        department: record.department || "",
-        project: record.project || "",
-        hostname: record.hostname || "",
-        requestTicket: linkedSoftwareRecord?.requestTicket || "",
-        preparedBy: linkedSoftwareRecord?.preparedBy || "",
-        approvedBy: linkedSoftwareRecord?.approvedBy || "",
-        preparedSignature: linkedSoftwareRecord?.preparedSignature ?? { name: "", signatureDataUrl: null, date: "" },
-        approvedSignature: linkedSoftwareRecord?.approvedSignature ?? { name: "", signatureDataUrl: null, date: "" },
-        expiryDate: linkedSoftwareRecord?.expiryDate || "",
-        status: linkedSoftwareRecord?.status || "Active",
-        remarks: linkedSoftwareRecord?.remarks || "Synced from IT Accountability Form"
-      };
+    const softwareSyncTask = (async () => {
+      if (hasSoftwareName) {
+        const unmatchedExisting = [...linkedSoftwareRecords];
+        const upsertTasks: Promise<void>[] = [];
 
-      if (linkedSoftwareRecord?.id) {
-        await updateSoftwareRecord(linkedSoftwareRecord.id, {
-          ...linkedSoftwareRecord,
-          ...syncedSoftwareRecord,
-          id: linkedSoftwareRecord.id,
-          createdAt: linkedSoftwareRecord.createdAt
-        });
-      } else {
-        await createSoftwareRecord(syncedSoftwareRecord);
+        for (const [index, softwareName] of softwareNames.entries()) {
+          const matchedIndex = unmatchedExisting.findIndex(
+            (item) => item.softwareName.trim().toLowerCase() === softwareName.toLowerCase()
+          );
+          const matchedRecord = matchedIndex >= 0 ? unmatchedExisting.splice(matchedIndex, 1)[0] : null;
+          const mappedLicenseReference =
+            softwareLicenses[index] || matchedRecord?.licenseReference || "";
+
+          const syncedSoftwareRecord: SoftwareInventoryRecord = {
+            sourceAccountabilityRecordId: id,
+            formNo: record.no || "",
+            softwareName,
+            softwareVersion: matchedRecord?.softwareVersion || "",
+            vendor: matchedRecord?.vendor || "",
+            licenseType: matchedRecord?.licenseType || "N/A",
+            licenseReference: mappedLicenseReference,
+            seatsPurchased: matchedRecord?.seatsPurchased || "",
+            seatsUsed: matchedRecord?.seatsUsed || "",
+            assignedTo: [record.firstName, record.middleName, record.lastName].filter(Boolean).join(" "),
+            employeeId: record.empId || "",
+            department: record.department || "",
+            project: record.project || "",
+            hostname: record.hostname || "",
+            requestTicket: matchedRecord?.requestTicket || "",
+            preparedBy: matchedRecord?.preparedBy || "",
+            approvedBy: matchedRecord?.approvedBy || "",
+            preparedSignature: matchedRecord?.preparedSignature ?? { name: "", signatureDataUrl: null, date: "" },
+            approvedSignature: matchedRecord?.approvedSignature ?? { name: "", signatureDataUrl: null, date: "" },
+            expiryDate: matchedRecord?.expiryDate || "",
+            status: matchedRecord?.status || "Active",
+            remarks: matchedRecord?.remarks || "Synced from IT Accountability Form"
+          };
+
+          if (matchedRecord?.id) {
+            upsertTasks.push(
+              updateSoftwareRecord(matchedRecord.id, {
+                ...matchedRecord,
+                ...syncedSoftwareRecord,
+                id: matchedRecord.id,
+                createdAt: matchedRecord.createdAt
+              })
+            );
+          } else {
+            upsertTasks.push(createSoftwareRecord(syncedSoftwareRecord));
+          }
+        }
+
+        await Promise.all(upsertTasks);
+
+        if (unmatchedExisting.length > 0) {
+          await Promise.all(
+            unmatchedExisting
+              .filter((item) => Boolean(item.id))
+              .map((item) => removeSoftwareRecord(item.id as string))
+          );
+        }
+        return;
       }
-    } else if (linkedSoftwareRecord?.id) {
-      await removeSoftwareRecord(linkedSoftwareRecord.id);
-    }
+
+      if (linkedSoftwareRecords.length > 0) {
+        await Promise.all(
+          linkedSoftwareRecords
+            .filter((item) => Boolean(item.id))
+            .map((item) => removeSoftwareRecord(item.id as string))
+        );
+      }
+    })();
+
+    await Promise.all([
+      inventorySyncTask,
+      ipadSyncTask,
+      returnedAssetsSyncTask,
+      disposalSyncTask,
+      softwareSyncTask
+    ]);
   };
 
   useEffect(() => {
-    if (softwareLoading || disposalLoading) {
-      return;
-    }
-
-    if (sectionCollectionsBackfilled) {
-      return;
-    }
-
-    const backfill = async () => {
-      for (const record of records) {
-        await syncSectionRecordsForAccountability(record);
-      }
-      setSectionCollectionsBackfilled(true);
-    };
-
-    void backfill();
-  }, [records, softwareLoading, disposalLoading, sectionCollectionsBackfilled]);
-
-  useEffect(() => {
     const syncReturnedAssetsToInventory = async () => {
+      if (showLanding || !selectedModule) {
+        return;
+      }
+
       for (const record of returnedAssetsRecords) {
         if (!record.id) {
           continue;
@@ -438,8 +604,9 @@ function App() {
 
         const existingInventoryRecord = assetInventoryRecords.find((item) => item.id === record.id);
         const isMissingInInventory = !existingInventoryRecord;
-        const hasNewerReturnedRecord =
-          (record.updatedAt ?? "") !== (existingInventoryRecord?.updatedAt ?? "");
+        const returnedUpdatedAt = new Date(record.updatedAt ?? 0).getTime();
+        const inventoryUpdatedAt = new Date(existingInventoryRecord?.updatedAt ?? 0).getTime();
+        const hasNewerReturnedRecord = returnedUpdatedAt > inventoryUpdatedAt;
 
         if (isMissingInInventory || hasNewerReturnedRecord) {
           await upsertAssetInventoryRecord({ ...record, id: record.id });
@@ -448,7 +615,45 @@ function App() {
     };
 
     void syncReturnedAssetsToInventory();
-  }, [returnedAssetsRecords, assetInventoryRecords, upsertAssetInventoryRecord]);
+  }, [showLanding, selectedModule, returnedAssetsRecords, assetInventoryRecords, upsertAssetInventoryRecord]);
+
+  useEffect(() => {
+    const syncChangedAccountabilityRecordsToReturnedAssets = async () => {
+      if (showLanding || !selectedModule) {
+        return;
+      }
+
+      const nextSyncKeyMap: Record<string, string> = {};
+
+      for (const record of records) {
+        const id = record.id;
+        if (!id) {
+          continue;
+        }
+
+        const syncKey = [
+          record.returnedDate,
+          record.deviceStatus,
+          record.workflowStatus,
+          record.transferDecision,
+          record.employmentStatus,
+          record.updatedAt
+        ].join("|");
+
+        nextSyncKeyMap[id] = syncKey;
+
+        if (lastReturnedAssetsSyncKeyRef.current[id] === syncKey) {
+          continue;
+        }
+
+        await syncReturnedAssetsForAccountability(record);
+      }
+
+      lastReturnedAssetsSyncKeyRef.current = nextSyncKeyMap;
+    };
+
+    void syncChangedAccountabilityRecordsToReturnedAssets();
+  }, [showLanding, selectedModule, records]);
 
   const snapshotPreviousInventoryRecord = async (recordId: string, reason: string) => {
     const previous = records.find((item) => item.id === recordId);
@@ -472,15 +677,18 @@ function App() {
   };
 
   const handleSubmit = async (record: AccountabilityRecord) => {
-    const cleaned = trimRecord(record);
+    const cleaned = appendStatusDecisionHistory(
+      applyEmployeeStatusRules(trimRecord(record))
+    );
     if (editingRecord?.id) {
-      await snapshotPreviousInventoryRecord(
+      void snapshotPreviousInventoryRecord(
         editingRecord.id,
         "Edited from IT Accountability form"
       );
       const updated = { ...cleaned, id: editingRecord.id };
       await updateRecord(editingRecord.id, cleaned);
-      await syncSectionRecordsForAccountability(updated);
+      await syncReturnedAssetsForAccountability(updated);
+      void syncSectionRecordsForAccountability(updated, { skipReturnedAssetsSync: true });
       setEditingRecord(null);
       setSelectedRecord((prev) => {
         if (!prev || prev.id !== editingRecord.id) return prev;
@@ -491,7 +699,9 @@ function App() {
       return;
     }
     const created = await createRecord(cleaned);
-    await syncSectionRecordsForAccountability(created);
+    await syncReturnedAssetsForAccountability(created);
+    void syncSectionRecordsForAccountability(created, { skipReturnedAssetsSync: true });
+    setPrefillRecord(null);
     setSelectedModule("it-accountability-form");
     setActiveView("records");
   };
@@ -500,21 +710,175 @@ function App() {
     if (!record.id) {
       return;
     }
+    const sourceAccountabilityRecord = records.find((item) => item.id === record.id) ?? null;
+    const sourceRecord = sourceAccountabilityRecord ?? record;
 
-    await snapshotPreviousInventoryRecord(
+    void snapshotPreviousInventoryRecord(
       record.id,
       "Edited from Returned Assets reassign form"
     );
 
     const cleaned = trimRecord(record);
-    await updateRecord(record.id, cleaned);
-    await syncSectionRecordsForAccountability({ ...cleaned, id: record.id });
+    const now = new Date().toISOString();
+    const previousHolderName = buildHolderName(sourceRecord) || sourceRecord.empId || "previous holder";
+    const newHolderName = buildHolderName(cleaned) || cleaned.empId || "new holder";
+    const transferContext = isTransferredEmploymentStatus(sourceRecord.employmentStatus)
+      ? " due to project transfer"
+      : "";
+
+    const closeSummary = `Accountability record closed: device reassigned from ${previousHolderName} to ${newHolderName}${transferContext}.`;
+    const createSummary = `Device reassigned from ${previousHolderName} to ${newHolderName}${transferContext}.`;
+
+    const closedRecord: AccountabilityRecord = {
+      ...sourceRecord,
+      workflowStatus: "Closed - Reassigned",
+      history: [
+        ...(sourceRecord.history ?? []),
+        {
+          id: crypto.randomUUID(),
+          action: "updated",
+          summary: closeSummary,
+          timestamp: now
+        }
+      ]
+    };
+
+    const previousHolders = [...(sourceRecord.previousHolders ?? [])];
+    const sourceEmpIdKey = String(sourceRecord.empId ?? "").trim().toLowerCase();
+    const previousHolderNameKey = String(previousHolderName ?? "").trim().toLowerCase();
+    const hasPreviousHolder = previousHolders.some(
+      (entry) =>
+        String(entry.empId ?? "").trim().toLowerCase() === sourceEmpIdKey &&
+        String(entry.holderName ?? "").trim().toLowerCase() === previousHolderNameKey
+    );
+
+    if (!hasPreviousHolder) {
+      previousHolders.push({
+        id: crypto.randomUUID(),
+        holderName: previousHolderName,
+        empId: sourceRecord.empId || "-",
+        department: sourceRecord.department || "-",
+        project: sourceRecord.project || "-",
+        releasedAt: now
+      });
+    }
+
+    const reassignmentRecordInput: AccountabilityRecord = {
+      ...cleaned,
+      id: undefined,
+      no: "",
+      employmentStatus: "Deployed",
+      transferDecision: "",
+      deviceStatus: "Deployed",
+      returnedDate: "",
+      workflowStatus: "Pending Employee Signature",
+      signatureRouteTo: "",
+      attachments: [],
+      assigneeSignature: { name: "", signatureDataUrl: null, date: "" },
+      assigneeReturnedSignature: { name: "", signatureDataUrl: null, date: "" },
+      phrSignature: { name: "", signatureDataUrl: null, date: "" },
+      amldSignature: { name: "", signatureDataUrl: null, date: "" },
+      itSignature: { name: "", signatureDataUrl: null, date: "" },
+      catoSignature: { name: "", signatureDataUrl: null, date: "" },
+      history: [
+        {
+          id: crypto.randomUUID(),
+          action: "updated",
+          summary: createSummary,
+          timestamp: now
+        }
+      ],
+      previousHolders,
+      returnHistory: [...(sourceRecord.returnHistory ?? [])],
+      archivedAssignments: [...(sourceRecord.archivedAssignments ?? [])]
+    };
+
+    let archivedClosedRecord: AccountabilityRecord;
+    try {
+      if (sourceAccountabilityRecord?.id) {
+        archivedClosedRecord = { ...closedRecord, id: sourceAccountabilityRecord.id };
+        await updateRecord(sourceAccountabilityRecord.id, closedRecord);
+      } else {
+        const createdArchivedRecord = await createRecord({
+          ...closedRecord,
+          id: undefined
+        });
+        archivedClosedRecord = createdArchivedRecord;
+      }
+
+      await syncReturnedAssetsForAccountability(archivedClosedRecord);
+      void syncSectionRecordsForAccountability(archivedClosedRecord, { skipReturnedAssetsSync: true });
+    } catch (error) {
+      console.error("Unable to archive previous reassigned record", error);
+      const reason = error instanceof Error ? error.message : "Unknown error";
+      window.alert(`Unable to archive previous record. Reason: ${reason}`);
+      return;
+    }
+
+    let createdRecord: AccountabilityRecord;
+    try {
+      createdRecord = await createRecord(reassignmentRecordInput);
+    } catch (error) {
+      console.error("Unable to create reassigned accountability record", error);
+      const reason = error instanceof Error ? error.message : "Unknown error";
+      window.alert(`Unable to save reassignment right now. Reason: ${reason}`);
+      return;
+    }
+
+    try {
+      await syncReturnedAssetsForAccountability(createdRecord);
+      void syncSectionRecordsForAccountability(createdRecord, { skipReturnedAssetsSync: true });
+    } catch (error) {
+      console.error("Unable to finalize reassignment sync", error);
+    }
+
+    setPrefillRecord(null);
+    setEditingRecord(null);
     setEditingReturnedAssetRecord(null);
+    setSelectedModule("it-accountability-form");
     setActiveView("records");
   };
 
   const handleReturnedAssetOpenReassignForm = (record: AccountabilityRecord) => {
     setEditingReturnedAssetRecord(record);
+    setActiveView("form");
+  };
+
+  const handleCreateNewFormFromPreviousRecord = (record: AccountabilityRecord) => {
+    const reassignmentPrefill: AccountabilityRecord = {
+      ...record,
+      id: undefined,
+      no: "",
+      empId: "",
+      firstName: "",
+      middleName: "",
+      lastName: "",
+      email: "",
+      position: "",
+      group: "",
+      employmentStatus: "Deployed",
+      transferDecision: "",
+      returnedDate: "",
+      attachments: [],
+      assigneeSignature: { name: "", signatureDataUrl: null, date: "" },
+      assigneeReturnedSignature: { name: "", signatureDataUrl: null, date: "" },
+      phrSignature: { name: "", signatureDataUrl: null, date: "" },
+      amldSignature: { name: "", signatureDataUrl: null, date: "" },
+      itSignature: { name: "", signatureDataUrl: null, date: "" },
+      catoSignature: { name: "", signatureDataUrl: null, date: "" },
+      workflowStatus: "Pending Employee Signature",
+      signatureRouteTo: "",
+      history: [],
+      previousHolders: record.previousHolders ?? [],
+      returnHistory: record.returnHistory ?? [],
+      archivedAssignments: record.archivedAssignments ?? [],
+      createdAt: undefined,
+      updatedAt: undefined
+    };
+
+    setEditingRecord(null);
+    setPrefillRecord(reassignmentPrefill);
+    setSelectedModule("it-accountability-form");
     setActiveView("form");
   };
 
@@ -725,6 +1089,7 @@ function App() {
   };
 
   const handleEditRecord = (record: AccountabilityRecord) => {
+    setPrefillRecord(null);
     setEditingRecord(record);
     setActiveView("form");
   };
@@ -1045,15 +1410,40 @@ function App() {
   const isDisposalModule = selectedModule === "disposal";
   const isReturnedAssetsModule = selectedModule === "returned-assets";
   const accountabilityProjectOptions = Array.from(
-    new Set(records.map((item) => item.project.trim()).filter(Boolean))
+    new Set(records.map((item) => String(item.project ?? "").trim()).filter(Boolean))
   ).sort((left, right) => left.localeCompare(right));
   const accountabilityDepartmentOptions = Array.from(
-    new Set(records.map((item) => item.department.trim()).filter(Boolean))
+    new Set(records.map((item) => String(item.department ?? "").trim()).filter(Boolean))
   ).sort((left, right) => left.localeCompare(right));
   const accountabilitySoftwareNameOptions = Array.from(
-    new Set(records.map((item) => item.softwareName.trim()).filter(Boolean))
+    new Set(records.map((item) => String(item.softwareName ?? "").trim()).filter(Boolean))
   ).sort((left, right) => left.localeCompare(right));
   const moduleThemeClass = selectedModule ? `theme-${selectedModule}` : "";
+
+  const visibleRecords = records.filter(
+    (item) => item.inventoryEntryType !== "history"
+  );
+
+  const bySource = new Map<string, AccountabilityRecord>();
+  const getTime = (value?: string) => {
+    const parsed = new Date(value ?? "").getTime();
+    return Number.isNaN(parsed) ? 0 : parsed;
+  };
+
+  visibleRecords.forEach((item) => {
+    const key =
+      item.inventorySourceRecordId ||
+      `${item.empId}-${item.hostname}-${item.deviceAssetNumber}-${item.serialNumber}`;
+
+    const existing = bySource.get(key);
+    if (!existing || getTime(item.updatedAt) >= getTime(existing.updatedAt)) {
+      bySource.set(key, item);
+    }
+  });
+
+  const activeAssetInventoryRecords = Array.from(bySource.values()).sort(
+    (left, right) => getTime(right.updatedAt) - getTime(left.updatedAt)
+  );
 
   const headerTitle = isNewItemModule
     ? "New Item"
@@ -1087,7 +1477,11 @@ function App() {
                 <button
                   type="button"
                   className={`nav-btn${activeView === "form" ? " nav-btn--active" : ""}`}
-                  onClick={() => setActiveView("form")}
+                  onClick={() => {
+                    setEditingRecord(null);
+                    setPrefillRecord(null);
+                    setActiveView("form");
+                  }}
                 >
                   <span className="nav-icon">✦</span>
                   Create Accountability Form
@@ -1317,19 +1711,19 @@ function App() {
               <>
                 <button
                   type="button"
-                  className={`nav-btn${activeView === "form" ? " nav-btn--active" : ""}`}
-                  onClick={() => setActiveView("form")}
-                >
-                  <span className="nav-icon">✎</span>
-                  Reassign Form
-                </button>
-                <button
-                  type="button"
                   className={`nav-btn${activeView === "records" ? " nav-btn--active" : ""}`}
                   onClick={() => setActiveView("records")}
                 >
                   <span className="nav-icon">☰</span>
                   Returned Assets
+                </button>
+                <button
+                  type="button"
+                  className={`nav-btn${activeView === "form" ? " nav-btn--active" : ""}`}
+                  onClick={() => setActiveView("form")}
+                >
+                  <span className="nav-icon">✎</span>
+                  Reassign Form
                 </button>
                 <button
                   type="button"
@@ -1396,8 +1790,13 @@ function App() {
           {isAccountabilityModule && activeView === "form" && (
             <EmployeeForm
               editingRecord={editingRecord}
+              prefillRecord={prefillRecord}
               onSubmit={handleSubmit}
-              onCancelEdit={() => { setEditingRecord(null); setActiveView("records"); }}
+              onCancelEdit={() => {
+                setEditingRecord(null);
+                setPrefillRecord(null);
+                setActiveView("records");
+              }}
             />
           )}
 
@@ -1438,19 +1837,19 @@ function App() {
 
           {isAssetInventoryModule && activeView === "inventory" && (
             <ITAssetInventory
-              records={assetInventoryRecords}
+              records={activeAssetInventoryRecords}
               newItemRecords={deliveryReceiptRecords}
-              loading={assetInventoryLoading}
-              onRefresh={reloadAssetInventoryRecords}
+              loading={accountabilityLoading}
+              onRefresh={reloadAccountabilityRecords}
             />
           )}
 
           {isAssetInventoryModule && activeView === "chart" && (
-            <ITAssetChart records={assetInventoryRecords} />
+            <ITAssetChart records={activeAssetInventoryRecords} />
           )}
 
           {isAssetInventoryModule && activeView === "printable" && (
-            <ITAssetInventoryPrintable records={assetInventoryRecords} ref={assetPrintRef} />
+            <ITAssetInventoryPrintable records={activeAssetInventoryRecords} ref={assetPrintRef} />
           )}
 
           {isAssetInventoryModule && activeView === "borrowing-form" && (
@@ -1497,6 +1896,7 @@ function App() {
               onBorrowingView={handleViewBorrowingRecord}
               onBorrowingDelete={handleDeleteBorrowingRecord}
               onBorrowingPrint={handlePrintBorrowingRecord}
+              onCreateFromPreviousRecord={handleCreateNewFormFromPreviousRecord}
               onDeliveryView={handleViewDeliveryReceiptRecord}
               onDeliveryEdit={handleEditDeliveryReceiptRecord}
               onDeliveryDelete={handleDeleteDeliveryReceiptRecord}

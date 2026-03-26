@@ -9,7 +9,7 @@ export const LandingPage = ({ onEnter }: LandingPageProps) => {
       <div className="landing-bg-orb landing-bg-orb--two" />
 
       <div className="landing-content">
-        <p className="landing-kicker">IT Assets Control System</p>
+        <p className="landing-kicker">IT Assets Management Portal</p>
 
         <h1 className="landing-wordmark" aria-label="MDC">
           <span className="landing-letter landing-letter--m">M</span>

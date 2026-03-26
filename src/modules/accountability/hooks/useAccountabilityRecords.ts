@@ -1,13 +1,12 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
-  addDoc,
   collection,
   deleteDoc,
   doc,
   getDocs,
   orderBy,
   query,
-  updateDoc
+  setDoc
 } from "firebase/firestore";
 import { db, isFirebaseConfigured } from "../../../shared/firebase/firebase";
 import { mockRecords } from "../data/mockData";
@@ -17,6 +16,9 @@ const COLLECTION_NAME = "accountability_records";
 const LOCAL_STORAGE_KEY = "ias-local-records";
 
 const stampNow = () => new Date().toISOString();
+
+const sanitizeForFirestore = <T>(value: T): T =>
+  JSON.parse(JSON.stringify(value)) as T;
 
 const buildHolderName = (record: AccountabilityRecord) =>
   [record.firstName, record.middleName, record.lastName]
@@ -32,6 +34,16 @@ const getRouteTarget = (record: AccountabilityRecord) =>
 
 const getWorkflowStatus = (record: AccountabilityRecord) =>
   hasAssigneeSignature(record) ? "Signed by Employee" : "Pending Employee Signature";
+
+const isClosedOrArchivedWorkflowStatus = (workflowStatus?: string) => {
+  const normalized = String(workflowStatus ?? "").trim().toLowerCase();
+  return normalized.includes("closed") || normalized.includes("archived");
+};
+
+const resolveWorkflowStatus = (record: AccountabilityRecord) =>
+  isClosedOrArchivedWorkflowStatus(record.workflowStatus)
+    ? String(record.workflowStatus)
+    : getWorkflowStatus(record);
 
 const buildArchivedAssignment = (record: AccountabilityRecord, archivedAt: string) => ({
   id: crypto.randomUUID(),
@@ -64,6 +76,19 @@ const writeLocal = (records: AccountabilityRecord[]) => {
   localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(records));
 };
 
+const scheduleWriteLocal = (records: AccountabilityRecord[]) => {
+  const write = () => writeLocal(records);
+
+  if (typeof window !== "undefined" && "requestIdleCallback" in window) {
+    (window as Window & { requestIdleCallback: (callback: () => void) => number }).requestIdleCallback(
+      write
+    );
+    return;
+  }
+
+  setTimeout(write, 0);
+};
+
 export const useAccountabilityRecords = () => {
   const [records, setRecords] = useState<AccountabilityRecord[]>([]);
   const [loading, setLoading] = useState(true);
@@ -78,7 +103,6 @@ export const useAccountabilityRecords = () => {
     if (useLocalMode) {
       const local = readLocal();
       setRecords(local);
-      writeLocal(local);
       setLoading(false);
       return;
     }
@@ -108,7 +132,7 @@ export const useAccountabilityRecords = () => {
     const routeTarget = getRouteTarget(record);
     const withSystemFields: AccountabilityRecord = {
       ...record,
-      workflowStatus: getWorkflowStatus(record),
+      workflowStatus: resolveWorkflowStatus(record),
       signatureRouteTo: routeTarget,
       archivedAssignments: [...(record.archivedAssignments ?? [])],
       returnHistory: [...(record.returnHistory ?? [])],
@@ -168,13 +192,20 @@ export const useAccountabilityRecords = () => {
       const localRecord = { ...payload, id: crypto.randomUUID() };
       const next = [localRecord, ...records];
       setRecords(next);
-      writeLocal(next);
+      scheduleWriteLocal(next);
       return localRecord;
     }
 
-    const result = await addDoc(collection(db, COLLECTION_NAME), payload);
-    const createdRecord = { ...payload, id: result.id };
+    const createdId = crypto.randomUUID();
+    const createdRecord = { ...payload, id: createdId };
     setRecords((prev) => [createdRecord, ...prev]);
+    const firestorePayload = sanitizeForFirestore(payload);
+
+    void setDoc(doc(collection(db, COLLECTION_NAME), createdId), firestorePayload).catch(() => {
+      setError("Unable to save record to Firestore. Please retry.");
+      setRecords((prev) => prev.filter((item) => item.id !== createdId));
+    });
+
     return createdRecord;
   };
 
@@ -269,7 +300,7 @@ export const useAccountabilityRecords = () => {
 
     const payload: AccountabilityRecord = {
       ...record,
-      workflowStatus: getWorkflowStatus(record),
+      workflowStatus: resolveWorkflowStatus(record),
       signatureRouteTo: routeTarget,
       history: nextHistory,
       previousHolders: nextPreviousHolders,
@@ -283,24 +314,43 @@ export const useAccountabilityRecords = () => {
         item.id === id ? { ...payload, id, createdAt: item.createdAt ?? stampNow() } : item
       );
       setRecords(next);
-      writeLocal(next);
+      scheduleWriteLocal(next);
       return;
     }
 
-    await updateDoc(doc(db, COLLECTION_NAME, id), payload as never);
+    const previousRecord = records.find((item) => item.id === id) ?? null;
     setRecords((prev) => prev.map((item) => (item.id === id ? { ...item, ...payload, id } : item)));
+    const firestorePayload = sanitizeForFirestore(payload);
+
+    void setDoc(doc(db, COLLECTION_NAME, id), firestorePayload as never, { merge: true }).catch(() => {
+      setError("Unable to update record in Firestore. Local changes were reverted.");
+      if (!previousRecord) {
+        return;
+      }
+
+      setRecords((prev) => prev.map((item) => (item.id === id ? previousRecord : item)));
+    });
   };
 
   const removeRecord = async (id: string) => {
     if (useLocalMode) {
       const next = records.filter((item) => item.id !== id);
       setRecords(next);
-      writeLocal(next);
+      scheduleWriteLocal(next);
       return;
     }
 
-    await deleteDoc(doc(db, COLLECTION_NAME, id));
+    const previousRecord = records.find((item) => item.id === id) ?? null;
     setRecords((prev) => prev.filter((item) => item.id !== id));
+
+    void deleteDoc(doc(db, COLLECTION_NAME, id)).catch(() => {
+      setError("Unable to delete record from Firestore. Record was restored.");
+      if (!previousRecord) {
+        return;
+      }
+
+      setRecords((prev) => [previousRecord, ...prev]);
+    });
   };
 
   return {

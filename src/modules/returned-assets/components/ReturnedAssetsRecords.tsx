@@ -6,7 +6,7 @@ interface ReturnedAssetsRecordsProps {
   onReassign: (record: AccountabilityRecord) => void;
 }
 
-const normalize = (value: string) => value.trim().toLowerCase();
+const normalize = (value?: string) => String(value ?? "").trim().toLowerCase();
 const PORTABLE_DEVICE_TYPES = new Set(["ipad", "tablet"]);
 
 export const ReturnedAssetsRecords = ({ records, onReassign }: ReturnedAssetsRecordsProps) => {

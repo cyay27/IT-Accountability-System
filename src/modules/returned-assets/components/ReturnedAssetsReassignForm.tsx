@@ -9,20 +9,6 @@ interface ReturnedAssetsReassignFormProps {
 
 const PORTABLE_DEVICE_TYPES = new Set(["ipad", "tablet"]);
 
-const toDisplayStatus = (record: AccountabilityRecord) => {
-  const normalized = (record.deviceStatus ?? "").trim().toLowerCase();
-  if (normalized === "defective") return "Defective";
-  if (normalized === "deployed") return "Deployed";
-  return "Available";
-};
-
-const toStoredDeviceStatus = (status: string) => {
-  const normalized = status.trim().toLowerCase();
-  if (normalized === "defective") return "Defective";
-  if (normalized === "deployed") return "Deployed";
-  return "Active";
-};
-
 export const ReturnedAssetsReassignForm = ({ record, onSave, onCancel }: ReturnedAssetsReassignFormProps) => {
   const [draft, setDraft] = useState<AccountabilityRecord | null>(null);
   const [saving, setSaving] = useState(false);
@@ -44,8 +30,7 @@ export const ReturnedAssetsReassignForm = ({ record, onSave, onCancel }: Returne
       setSaving(true);
       await Promise.resolve(
         onSave({
-          ...draft,
-          deviceStatus: toStoredDeviceStatus(draft.deviceStatus ?? "Available")
+          ...draft
         })
       );
     } finally {
@@ -127,23 +112,7 @@ export const ReturnedAssetsReassignForm = ({ record, onSave, onCancel }: Returne
 
         <label className="field">
           <span>Status</span>
-          <select
-            value={toDisplayStatus(draft)}
-            onChange={(event) =>
-              setDraft((prev) =>
-                prev
-                  ? {
-                      ...prev,
-                      deviceStatus: event.target.value
-                    }
-                  : prev
-              )
-            }
-          >
-            <option value="Available">Available</option>
-            <option value="Defective">Defective</option>
-            <option value="Deployed">Deployed</option>
-          </select>
+          <input value="Deployed to new user" readOnly />
         </label>
 
         <section className="field field-span">

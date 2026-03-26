@@ -6,6 +6,7 @@ import {
   REQUIRED_FIELDS
 } from "../types/accountability";
 import { SignaturePad } from "./SignaturePad";
+import { useSoftwareInventoryRecords } from "../../software-inventory/hooks/useSoftwareInventoryRecords";
 
 interface EmployeeFormProps {
   editingRecord: AccountabilityRecord | null;
@@ -39,7 +40,18 @@ const labels: FieldDef[] = [
     type: "select",
     options: ["", "ASB", "MAKATI", "Sloc", "Nloc", "Qc", "East", "Mdbi", "Vismin", "Alcav", "Corporate"]
   },
-  { key: "employmentStatus", label: "Employment Status" },
+  {
+    key: "employmentStatus",
+    label: "Employment Status",
+    type: "select",
+    options: ["", "Deployed", "Resigned", "Transferred Project"]
+  },
+  {
+    key: "transferDecision",
+    label: "Transfer Decision",
+    type: "select",
+    options: ["", "Device goes with user", "Device stays and is reassigned"]
+  },
   { key: "project", label: "Project" },
   { key: "costCenter", label: "Cost Center" },
   { key: "projectLocation", label: "Location of Asset (Project/Address)" },
@@ -84,6 +96,29 @@ const REMOVED_PROJECT_OPTIONS = new Set([
   "erp rollput",
   "erp rollout"
 ]);
+const BULK_SOFTWARE_OPTION_VALUE = "__bulk_software_option__";
+
+const isTransferredEmploymentStatus = (value?: string) => {
+  const normalized = String(value ?? "").trim().toLowerCase();
+  return normalized.includes("transfer");
+};
+
+const isResignedEmploymentStatus = (value?: string) => {
+  const normalized = String(value ?? "").trim().toLowerCase();
+  return normalized.includes("resign");
+};
+
+const isDeviceStaysForReassignDecision = (value?: string) => {
+  const normalized = String(value ?? "").trim().toLowerCase();
+  return normalized === "device stays and is reassigned" || normalized.includes("reassign");
+};
+
+const splitDelimitedValues = (value: string) =>
+  value
+    .split(/[\n,]/)
+    .map((item) => item.trim());
+
+const isBulkSoftwareValue = (value: string) => splitDelimitedValues(value).filter(Boolean).length > 1;
 
 const isRemovedProjectOption = (value: string) =>
   REMOVED_PROJECT_OPTIONS.has(value.trim().toLowerCase());
@@ -233,6 +268,7 @@ const deriveDeviceConditionFromHostname = (hostname: string): "New" | "Old" | "A
 
 export const EmployeeForm = ({ editingRecord, prefillRecord = null, onSubmit, onCancelEdit }: EmployeeFormProps) => {
   const persistedDropdownConfig = loadEmployeeDropdownConfig();
+  const { records: softwareInventoryRecords } = useSoftwareInventoryRecords();
   const [form, setForm] = useState<AccountabilityRecord>(emptyRecord());
   const [errors, setErrors] = useState<string[]>([]);
   const [saving, setSaving] = useState(false);
@@ -240,6 +276,12 @@ export const EmployeeForm = ({ editingRecord, prefillRecord = null, onSubmit, on
   const [isEditMode, setIsEditMode] = useState(false);
   const [showOtherDeviceDialog, setShowOtherDeviceDialog] = useState(false);
   const [otherDeviceDraft, setOtherDeviceDraft] = useState("");
+  const [showBulkSoftwareDialog, setShowBulkSoftwareDialog] = useState(false);
+  const [bulkSoftwareDrafts, setBulkSoftwareDrafts] = useState<string[]>([""]);
+  const [showBulkLicenseDialog, setShowBulkLicenseDialog] = useState(false);
+  const [bulkLicenseDrafts, setBulkLicenseDrafts] = useState<string[]>([""]);
+  const [previousSoftwareName, setPreviousSoftwareName] = useState("");
+  const [previousSoftwareLicense, setPreviousSoftwareLicense] = useState("");
   const [previousDeviceType, setPreviousDeviceType] = useState("");
   const [previousOtherSpecification, setPreviousOtherSpecification] = useState("");
   const [dropdownFields, setDropdownFields] = useState<Record<string, boolean>>(
@@ -279,10 +321,55 @@ export const EmployeeForm = ({ editingRecord, prefillRecord = null, onSubmit, on
     );
   }, [dropdownFields, selectOptions]);
 
-  const fullName = useMemo(
-    () => [form.firstName, form.middleName, form.lastName].filter(Boolean).join(" "),
-    [form.firstName, form.middleName, form.lastName]
-  );
+  const inventorySoftwareByName = useMemo(() => {
+    const map = new Map<string, string>();
+
+    softwareInventoryRecords.forEach((record) => {
+      const name = record.softwareName.trim();
+      if (!name || isBulkSoftwareValue(name)) {
+        return;
+      }
+
+      const key = name.toLowerCase();
+      if (!map.has(key)) {
+        map.set(key, record.licenseReference.trim());
+      }
+    });
+
+    return map;
+  }, [softwareInventoryRecords]);
+
+  const softwareNameOptions = useMemo(() => {
+    const normalized = softwareInventoryRecords
+      .map((record) => record.softwareName.trim())
+      .filter((name) => Boolean(name) && !isBulkSoftwareValue(name));
+
+    const uniqueNames = Array.from(new Set(normalized)).sort((a, b) =>
+      a.localeCompare(b, undefined, { sensitivity: "base" })
+    );
+
+    const currentValue = form.softwareName.trim();
+    const currentValueIsBulk = isBulkSoftwareValue(currentValue);
+    const hasCurrentValue = currentValue
+      ? uniqueNames.some((option) => option.toLowerCase() === currentValue.toLowerCase())
+      : false;
+
+    return [
+      "",
+      ...uniqueNames,
+      ...(currentValue && !hasCurrentValue && !currentValueIsBulk ? [currentValue] : []),
+      BULK_SOFTWARE_OPTION_VALUE
+    ];
+  }, [softwareInventoryRecords, form.softwareName]);
+
+  const softwareNameSelectValue = useMemo(() => {
+    const currentValue = form.softwareName.trim();
+    if (!currentValue) {
+      return "";
+    }
+
+    return isBulkSoftwareValue(currentValue) ? BULK_SOFTWARE_OPTION_VALUE : currentValue;
+  }, [form.softwareName]);
 
   useEffect(() => {
     const derivedDeviceCondition = deriveDeviceConditionFromHostname(form.hostname);
@@ -302,6 +389,10 @@ export const EmployeeForm = ({ editingRecord, prefillRecord = null, onSubmit, on
 
   const isPortableDevice = PORTABLE_DEVICE_TYPES.has(form.deviceType.trim().toLowerCase());
   const isOtherDeviceType = form.deviceType.trim().toLowerCase() === "others";
+  const isTransferredProject = isTransferredEmploymentStatus(form.employmentStatus);
+  const isResigned = isResignedEmploymentStatus(form.employmentStatus);
+  const requiresReturnedSignOff =
+    isResigned || (isTransferredProject && isDeviceStaysForReassignDecision(form.transferDecision));
 
   const validate = () => {
     const nextErrors: string[] = [];
@@ -322,6 +413,18 @@ export const EmployeeForm = ({ editingRecord, prefillRecord = null, onSubmit, on
 
     if (isOtherDeviceType && !String(form.otherDeviceSpecification ?? "").trim()) {
       nextErrors.push("please specify the equipment type when Device Type is Others.");
+    }
+
+    if (requiresReturnedSignOff) {
+      if (!String(form.returnedDate ?? "").trim()) {
+        nextErrors.push("return date is required for resigned or transfer-reassign records.");
+      }
+
+      if (!form.assigneeReturnedSignature?.signatureDataUrl) {
+        nextErrors.push(
+          "Assignee - Returned on signature is required for resigned or transfer-reassign records."
+        );
+      }
     }
 
     setErrors(nextErrors);
@@ -434,6 +537,15 @@ export const EmployeeForm = ({ editingRecord, prefillRecord = null, onSubmit, on
   };
 
   const handleFieldChange = (key: keyof AccountabilityRecord, value: string) => {
+    if (key === "employmentStatus") {
+      setForm((prev) => ({
+        ...prev,
+        employmentStatus: value,
+        transferDecision: isTransferredEmploymentStatus(value) ? prev.transferDecision : ""
+      }));
+      return;
+    }
+
     if (key === "hostname") {
       const derivedDeviceCondition = deriveDeviceConditionFromHostname(value);
       setForm((prev) => ({
@@ -477,10 +589,37 @@ export const EmployeeForm = ({ editingRecord, prefillRecord = null, onSubmit, on
       return;
     }
 
+    if (key === "softwareName") {
+      if (value === BULK_SOFTWARE_OPTION_VALUE) {
+        handleOpenBulkSoftwareDialog();
+        return;
+      }
+
+      const mappedLicense = inventorySoftwareByName.get(value.trim().toLowerCase()) ?? "";
+
+      setForm((prev) => ({
+        ...prev,
+        softwareName: value,
+        softwareLicense: mappedLicense || prev.softwareLicense
+      }));
+      return;
+    }
+
     setForm((prev) => ({
       ...prev,
       [key]: value
     }));
+  };
+
+  const handleOpenBulkSoftwareDialog = () => {
+    setPreviousSoftwareName(form.softwareName);
+    const existingBulkValues = splitDelimitedValues(form.softwareName).filter(Boolean);
+    const rowCount = Math.max(existingBulkValues.length, 1);
+
+    setBulkSoftwareDrafts(
+      Array.from({ length: rowCount }, (_, index) => existingBulkValues[index] ?? "")
+    );
+    setShowBulkSoftwareDialog(true);
   };
 
   const handleConfirmOtherDeviceSpecification = () => {
@@ -489,6 +628,76 @@ export const EmployeeForm = ({ editingRecord, prefillRecord = null, onSubmit, on
       otherDeviceSpecification: otherDeviceDraft.trim()
     }));
     setShowOtherDeviceDialog(false);
+  };
+
+  const handleConfirmBulkSoftware = () => {
+    const combinedSoftwareNames = bulkSoftwareDrafts
+      .map((item) => item.trim())
+      .filter(Boolean)
+      .join(", ");
+
+    setForm((prev) => ({
+      ...prev,
+      softwareName: combinedSoftwareNames
+    }));
+    setShowBulkSoftwareDialog(false);
+  };
+
+  const handleCancelBulkSoftware = () => {
+    setForm((prev) => ({
+      ...prev,
+      softwareName: previousSoftwareName
+    }));
+    setShowBulkSoftwareDialog(false);
+  };
+
+  const handleOpenBulkLicenseDialog = () => {
+    setPreviousSoftwareLicense(form.softwareLicense);
+    const existingBulkLicenseValues = splitDelimitedValues(form.softwareLicense);
+    const rowCount = Math.max(existingBulkLicenseValues.length, 1);
+    setBulkLicenseDrafts(
+      Array.from({ length: rowCount }, (_, index) => existingBulkLicenseValues[index] ?? "")
+    );
+    setShowBulkLicenseDialog(true);
+  };
+
+  const handleConfirmBulkLicense = () => {
+    const combinedLicenses = bulkLicenseDrafts
+      .map((item) => item.trim())
+      .filter(Boolean)
+      .join(", ");
+
+    setForm((prev) => ({
+      ...prev,
+      softwareLicense: combinedLicenses
+    }));
+    setShowBulkLicenseDialog(false);
+  };
+
+  const handleCancelBulkLicense = () => {
+    setForm((prev) => ({
+      ...prev,
+      softwareLicense: previousSoftwareLicense
+    }));
+    setShowBulkLicenseDialog(false);
+  };
+
+  const handleAddBulkSoftwareInput = () => {
+    setBulkSoftwareDrafts((prev) => [...prev, ""]);
+  };
+
+  const handleBulkSoftwareDraftChange = (index: number, value: string) => {
+    setBulkSoftwareDrafts((prev) => prev.map((item, itemIndex) => (itemIndex === index ? value : item)));
+  };
+
+  const handleAddBulkLicenseInput = () => {
+    setBulkLicenseDrafts((prev) => [...prev, ""]);
+  };
+
+  const handleBulkLicenseDraftChange = (index: number, value: string) => {
+    setBulkLicenseDrafts((prev) =>
+      prev.map((item, itemIndex) => (itemIndex === index ? value : item))
+    );
   };
 
   const handleCancelOtherDeviceSpecification = () => {
@@ -616,13 +825,6 @@ export const EmployeeForm = ({ editingRecord, prefillRecord = null, onSubmit, on
       >
         {isEditMode ? "Done" : "Edit"}
       </button>
-      <p className="helper-text">Full Name Preview: <strong>{fullName || "-"}</strong></p>
-      <p className="helper-text">
-        Signature Workflow Status: <strong>{form.workflowStatus || "Pending Employee Signature"}</strong>
-        {" • "}
-        Routed To: <strong>{form.signatureRouteTo || form.email || fullName || "Employee/User"}</strong>
-      </p>
-
       {errors.length > 0 && (
         <div className="error-box">
           {errors.map((message) => (
@@ -634,17 +836,25 @@ export const EmployeeForm = ({ editingRecord, prefillRecord = null, onSubmit, on
       <form onSubmit={handleSubmit} className="form-grid">
         {labels.map((fieldDef) => {
           const { key, label, type } = fieldDef;
+          if (key === "transferDecision" && !isTransferredProject) {
+            return null;
+          }
+
           if (isPortableDevice && EXCLUDED_ON_PORTABLE.includes(key)) {
             return null;
           }
 
           const required = REQUIRED_FIELDS.includes(key);
-          const isSelect = Boolean(dropdownFields[String(key)]);
+          const isSoftwareNameField = key === "softwareName";
+          const isSoftwareLicenseField = key === "softwareLicense";
+          const isSelect = isSoftwareNameField ? true : Boolean(dropdownFields[String(key)]);
           const options = isSelect
-            ? (
-                selectOptions[String(key)] ??
-                (fieldDef.type === "select" ? (fieldDef as { options: string[] }).options : [""])
-              )
+            ? isSoftwareNameField
+              ? softwareNameOptions
+              : (
+                  selectOptions[String(key)] ??
+                  (fieldDef.type === "select" ? (fieldDef as { options: string[] }).options : [""])
+                )
             : [];
           return (
             <label key={String(key)} className="field">
@@ -655,14 +865,16 @@ export const EmployeeForm = ({ editingRecord, prefillRecord = null, onSubmit, on
               {isSelect ? (
                 <div className="field-select-wrap">
                   <select
-                    value={String(form[key] ?? "")}
+                    value={isSoftwareNameField ? softwareNameSelectValue : String(form[key] ?? "")}
                     onChange={(e) =>
                       handleFieldChange(key, e.target.value)
                     }
                   >
                     {options.map((o) => (
                       <option key={o} value={o}>
-                        {o || `Select ${label}`}
+                        {o === BULK_SOFTWARE_OPTION_VALUE
+                          ? "Bulk"
+                          : o || `Select ${label}`}
                       </option>
                     ))}
                   </select>
@@ -672,7 +884,7 @@ export const EmployeeForm = ({ editingRecord, prefillRecord = null, onSubmit, on
                     title={`Add ${label} option`}
                     aria-label={`Add ${label} option`}
                     onClick={() => handleAddSelectOption(key, label)}
-                    style={{ display: isEditMode ? "block" : "none" }}
+                    style={{ display: isEditMode && !isSoftwareNameField ? "block" : "none" }}
                   >
                     +
                   </button>
@@ -682,7 +894,7 @@ export const EmployeeForm = ({ editingRecord, prefillRecord = null, onSubmit, on
                     title={`Remove selected ${label} option`}
                     aria-label={`Remove selected ${label} option`}
                     onClick={() => handleRemoveSelectOption(key, label)}
-                    style={{ display: isEditMode ? "block" : "none" }}
+                    style={{ display: isEditMode && !isSoftwareNameField ? "block" : "none" }}
                   >
                     -
                   </button>
@@ -697,13 +909,25 @@ export const EmployeeForm = ({ editingRecord, prefillRecord = null, onSubmit, on
                     }
                     placeholder={key === "cato" ? "" : label}
                   />
+                  {isSoftwareLicenseField && (
+                    <button
+                      type="button"
+                      className="field-convert-btn"
+                      title="Bulk input license values"
+                      aria-label="Bulk input license values"
+                      onClick={handleOpenBulkLicenseDialog}
+                      style={{ display: "block", right: "36px" }}
+                    >
+                      +
+                    </button>
+                  )}
                   <button
                     type="button"
                     className="field-convert-btn"
                     title={`Convert ${label} to dropdown`}
                     aria-label={`Convert ${label} to dropdown`}
                     onClick={() => handleConvertTextboxToDropdown(key, label)}
-                    style={{ display: isEditMode ? "block" : "none" }}
+                    style={{ display: isEditMode && !isSoftwareLicenseField ? "block" : "none" }}
                   >
                     v
                   </button>
@@ -882,6 +1106,122 @@ export const EmployeeForm = ({ editingRecord, prefillRecord = null, onSubmit, on
                   Cancel
                 </button>
                 <button type="button" onClick={handleConfirmOtherDeviceSpecification}>
+                  Apply
+                </button>
+              </div>
+            </div>
+          </section>
+        </div>
+      )}
+
+      {showBulkSoftwareDialog && (
+        <div
+          className="history-modal-backdrop"
+          role="presentation"
+          onClick={handleCancelBulkSoftware}
+        >
+          <section
+            className="history-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="bulk-software-dialog-title"
+            onClick={(event) => event.stopPropagation()}
+            style={{ width: "min(520px, 100%)" }}
+          >
+            <header className="history-modal-header">
+              <div>
+                <h3 id="bulk-software-dialog-title">Specify Software Application (Bulk)</h3>
+                <p className="helper-text">Provide software application details for bulk assignment.</p>
+              </div>
+            </header>
+
+            <div className="history-modal-body">
+              <div className="field">
+                <span>Software Application Name *</span>
+                {bulkSoftwareDrafts.map((softwareDraft, index) => (
+                  <div key={`bulk-software-row-${index}`} style={{ marginTop: index === 0 ? "8px" : "10px" }}>
+                    <input
+                      type="text"
+                      value={softwareDraft}
+                      onChange={(event) => handleBulkSoftwareDraftChange(index, event.target.value)}
+                      placeholder={`e.g. Software ${index + 1}`}
+                      autoFocus={index === 0}
+                    />
+                  </div>
+                ))}
+                <button
+                  type="button"
+                  className="ghost"
+                  onClick={handleAddBulkSoftwareInput}
+                  style={{ marginTop: "10px" }}
+                >
+                  + Add another software
+                </button>
+              </div>
+
+              <div className="actions" style={{ justifyContent: "flex-end" }}>
+                <button type="button" className="ghost" onClick={handleCancelBulkSoftware}>
+                  Cancel
+                </button>
+                <button type="button" onClick={handleConfirmBulkSoftware}>
+                  Apply
+                </button>
+              </div>
+            </div>
+          </section>
+        </div>
+      )}
+
+      {showBulkLicenseDialog && (
+        <div
+          className="history-modal-backdrop"
+          role="presentation"
+          onClick={handleCancelBulkLicense}
+        >
+          <section
+            className="history-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="bulk-license-dialog-title"
+            onClick={(event) => event.stopPropagation()}
+            style={{ width: "min(520px, 100%)" }}
+          >
+            <header className="history-modal-header">
+              <div>
+                <h3 id="bulk-license-dialog-title">Specify Software Licenses (Bulk)</h3>
+                <p className="helper-text">Provide license/reference value per software entry.</p>
+              </div>
+            </header>
+
+            <div className="history-modal-body">
+              <div className="field">
+                <span>Software License / Reference #</span>
+                {bulkLicenseDrafts.map((licenseDraft, index) => (
+                  <input
+                    key={`bulk-license-${index}`}
+                    type="text"
+                    value={licenseDraft}
+                    onChange={(event) => handleBulkLicenseDraftChange(index, event.target.value)}
+                    placeholder={`License / Reference # ${index + 1}`}
+                    autoFocus={index === 0}
+                    style={{ marginTop: index === 0 ? "8px" : "10px" }}
+                  />
+                ))}
+                <button
+                  type="button"
+                  className="ghost"
+                  onClick={handleAddBulkLicenseInput}
+                  style={{ marginTop: "10px" }}
+                >
+                  + Add another license
+                </button>
+              </div>
+
+              <div className="actions" style={{ justifyContent: "flex-end" }}>
+                <button type="button" className="ghost" onClick={handleCancelBulkLicense}>
+                  Cancel
+                </button>
+                <button type="button" onClick={handleConfirmBulkLicense}>
                   Apply
                 </button>
               </div>

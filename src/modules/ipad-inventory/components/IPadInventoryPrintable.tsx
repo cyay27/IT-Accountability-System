@@ -16,7 +16,7 @@ export const IPadInventoryPrintable = forwardRef<
 
   return (
     <section className="panel print-shell">
-      <h2 className="no-print">IPAD Inventory Printable Preview</h2>
+      <h2 className="no-print">IPAD Inventory Printable</h2>
 
       <div className="print-form" ref={ref}>
         <header className="print-header">

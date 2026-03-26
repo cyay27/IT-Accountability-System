@@ -9,8 +9,8 @@ interface ITAssetInventoryProps {
   onRefresh: () => Promise<void> | void;
 }
 
-const normalize = (value: string) => value.trim().toLowerCase();
-const DEFAULT_DEVICE_TYPES = ["Desktop", "Laptop", "Tablet", "Ipad", "Others"];
+const normalize = (value?: string) => String(value ?? "").trim().toLowerCase();
+const DEFAULT_DEVICE_TYPES = ["Desktop", "Laptop", "Tablet", "Ipad", "Others", "Monitor"];
 const EMPLOYEE_FORM_DROPDOWN_STORAGE_KEY = "ias:employee-form:dropdown-config";
 const REMOVED_PROJECT_OPTIONS = new Set([
   "onboarding 2026",
@@ -80,16 +80,65 @@ export const ITAssetInventory = ({ records, newItemRecords, loading, onRefresh }
 
   const filtered = useMemo(() => {
     const hostname = normalize(hostnameSearch);
+    const monitorFilterSelected = deviceTypeFilter.trim().toLowerCase() === "monitor";
 
     return records.filter((item) => {
       const byHostname = !hostname || normalize(item.hostname).includes(hostname);
       const byStatus = !statusFilter || item.deviceCondition === statusFilter;
-      const byDeviceType = !deviceTypeFilter || item.deviceType === deviceTypeFilter;
+      const hasMonitor = [item.monitorModel, item.monitorSerialNumber, item.monitorAssetNumber].some(
+        (value) => String(value ?? "").trim() !== ""
+      );
+      const baseDeviceMatches = !deviceTypeFilter || item.deviceType === deviceTypeFilter;
+      const monitorMatches = monitorFilterSelected && hasMonitor;
+      const byDeviceType = baseDeviceMatches || monitorMatches;
       const byProject = !projectFilter || item.project === projectFilter;
 
       return byHostname && byStatus && byDeviceType && byProject;
     });
   }, [records, hostnameSearch, statusFilter, deviceTypeFilter, projectFilter]);
+
+  const expandedRows = useMemo(() => {
+    const monitorFilterSelected = deviceTypeFilter.trim().toLowerCase() === "monitor";
+
+    return filtered.flatMap((record) => {
+      const baseRow = {
+        key: `${record.id ?? `${record.empId}-${record.hostname}`}-base`,
+        hostname: record.hostname,
+        employee: [record.firstName, record.lastName].filter(Boolean).join(" "),
+        deviceType: record.deviceType || "-",
+        status: record.deviceCondition || "-",
+        deviceStatus: record.deviceStatus || "-",
+        project: record.project || "-",
+        serialNumber: record.serialNumber || "-",
+        assetNumber: record.deviceAssetNumber || "-",
+        updatedAt: record.updatedAt
+      };
+
+      const hasMonitor = [record.monitorModel, record.monitorSerialNumber, record.monitorAssetNumber].some(
+        (value) => String(value ?? "").trim() !== ""
+      );
+      const monitorRow = hasMonitor
+        ? {
+            key: `${record.id ?? `${record.empId}-${record.hostname}`}-monitor`,
+            hostname: record.monitorModel || "-",
+            employee: [record.firstName, record.lastName].filter(Boolean).join(" "),
+            deviceType: "Monitor",
+            status: "-",
+            deviceStatus: record.deviceStatus || "-",
+            project: record.project || "-",
+            serialNumber: record.monitorSerialNumber || "-",
+            assetNumber: record.monitorAssetNumber || "-",
+            updatedAt: record.updatedAt
+          }
+        : null;
+
+      if (monitorFilterSelected) {
+        return monitorRow ? [monitorRow] : [];
+      }
+
+      return monitorRow ? [baseRow, monitorRow] : [baseRow];
+    });
+  }, [filtered, deviceTypeFilter]);
 
   return (
     <section className="panel">
@@ -168,20 +217,20 @@ export const ITAssetInventory = ({ records, newItemRecords, loading, onRefresh }
               </tr>
             </thead>
             <tbody>
-              {filtered.map((record) => (
-                <tr key={record.id ?? `${record.empId}-${record.hostname}`}>
-                  <td>{record.hostname}</td>
-                  <td>{[record.firstName, record.lastName].filter(Boolean).join(" ")}</td>
-                  <td>{record.deviceType || "-"}</td>
-                  <td>{record.deviceCondition || "-"}</td>
-                  <td>{record.deviceStatus || "-"}</td>
-                  <td>{record.project || "-"}</td>
-                  <td>{record.serialNumber || "-"}</td>
-                  <td>{record.deviceAssetNumber || "-"}</td>
-                  <td>{record.updatedAt ? new Date(record.updatedAt).toLocaleString() : "-"}</td>
+              {expandedRows.map((row) => (
+                <tr key={row.key}>
+                  <td>{row.hostname}</td>
+                  <td>{row.employee}</td>
+                  <td>{row.deviceType}</td>
+                  <td>{row.status}</td>
+                  <td>{row.deviceStatus}</td>
+                  <td>{row.project}</td>
+                  <td>{row.serialNumber}</td>
+                  <td>{row.assetNumber}</td>
+                  <td>{row.updatedAt ? new Date(row.updatedAt).toLocaleString() : "-"}</td>
                 </tr>
               ))}
-              {filtered.length === 0 && (
+              {expandedRows.length === 0 && (
                 <tr>
                   <td colSpan={9}>No assets found for current filters.</td>
                 </tr>

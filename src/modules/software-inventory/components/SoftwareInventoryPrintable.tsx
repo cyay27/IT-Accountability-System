@@ -31,6 +31,12 @@ const rows: Array<{ key: SoftwarePrintableKey; label: string }> = [
   { key: "remarks", label: "Remarks" }
 ];
 
+const splitSoftwareNames = (value: string) =>
+  value
+    .split(/[\n,]/)
+    .map((item) => item.trim())
+    .filter(Boolean);
+
 export const SoftwareInventoryPrintable = forwardRef<
   HTMLDivElement,
   SoftwareInventoryPrintableProps
@@ -38,7 +44,7 @@ export const SoftwareInventoryPrintable = forwardRef<
   if (!record) {
     return (
       <section className="panel">
-        <h2>Software Form Preview</h2>
+        <h2>Software Form</h2>
         <p className="helper-text">
           Select a software record from the table and click View or Print.
         </p>
@@ -48,7 +54,7 @@ export const SoftwareInventoryPrintable = forwardRef<
 
   return (
     <section className="panel print-shell">
-      <h2 className="no-print">Software Inventory Form Preview</h2>
+      <h2 className="no-print">Software Inventory Form</h2>
 
       <div className="print-form" ref={ref}>
         <header className="print-header">
@@ -86,7 +92,22 @@ export const SoftwareInventoryPrintable = forwardRef<
                 <td className="pf-lbl" style={{ width: "35%" }}>
                   {row.label}
                 </td>
-                <td className="pf-val">{record[row.key] || "-"}</td>
+                <td className="pf-val">
+                  {row.key === "softwareName" ? (
+                    (() => {
+                      const softwareNames = splitSoftwareNames(record.softwareName);
+                      if (softwareNames.length === 0) {
+                        return "-";
+                      }
+
+                      return softwareNames.map((softwareName, index) => (
+                        <div key={`${softwareName}-${index}`}>{softwareName}</div>
+                      ));
+                    })()
+                  ) : (
+                    record[row.key] || "-"
+                  )}
+                </td>
               </tr>
             ))}
           </tbody>

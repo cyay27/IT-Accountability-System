@@ -12,6 +12,73 @@ interface SoftwareInventoryRecordsProps {
 
 type SortKey = keyof SoftwareInventoryRecord;
 
+interface GroupedSoftwareRow {
+  key: string;
+  baseRecord: SoftwareInventoryRecord;
+  softwareNames: string[];
+  licenseReferences: string[];
+  searchBlob: string;
+}
+
+const toTime = (value?: string) => {
+  const time = new Date(value ?? "").getTime();
+  return Number.isNaN(time) ? 0 : time;
+};
+
+const groupSoftwareRows = (records: SoftwareInventoryRecord[]): GroupedSoftwareRow[] => {
+  const groups = new Map<string, SoftwareInventoryRecord[]>();
+
+  records.forEach((record, index) => {
+    const groupKey = record.sourceAccountabilityRecordId
+      ? `source:${record.sourceAccountabilityRecordId}`
+      : `record:${record.id ?? index}`;
+
+    const current = groups.get(groupKey) ?? [];
+    current.push(record);
+    groups.set(groupKey, current);
+  });
+
+  return Array.from(groups.entries()).map(([key, groupedRecords]) => {
+    const sortedByNewest = [...groupedRecords].sort(
+      (left, right) => toTime(right.updatedAt) - toTime(left.updatedAt)
+    );
+    const baseRecord = sortedByNewest[0];
+
+    const softwarePairs = groupedRecords
+      .map((record) => ({
+        name: String(record.softwareName ?? "").trim(),
+        license: String(record.licenseReference ?? "").trim()
+      }))
+      .filter((item) => item.name)
+      .sort((left, right) => left.name.localeCompare(right.name, undefined, { sensitivity: "base" }));
+
+    const softwareNames = softwarePairs.map((item) => item.name);
+    const licenseReferences = softwarePairs.map((item) => item.license);
+
+    const searchBlob = [
+      baseRecord.formNo,
+      ...softwareNames,
+      ...licenseReferences,
+      baseRecord.assignedTo,
+      baseRecord.employeeId,
+      baseRecord.department,
+      baseRecord.project,
+      baseRecord.hostname,
+      baseRecord.requestTicket
+    ]
+      .join(" ")
+      .toLowerCase();
+
+    return {
+      key,
+      baseRecord,
+      softwareNames,
+      licenseReferences,
+      searchBlob
+    };
+  });
+};
+
 export const SoftwareInventoryRecords = ({
   records,
   loading,
@@ -20,6 +87,7 @@ export const SoftwareInventoryRecords = ({
   onView,
   onPrint
 }: SoftwareInventoryRecordsProps) => {
+  const groupedRows = useMemo(() => groupSoftwareRows(records), [records]);
   const [search, setSearch] = useState("");
   const [status, setStatus] = useState("");
   const [department, setDepartment] = useState("");
@@ -30,7 +98,7 @@ export const SoftwareInventoryRecords = ({
   const options = useMemo(() => {
     const getUnique = (key: keyof SoftwareInventoryRecord) =>
       Array.from(
-        new Set(records.map((item) => String(item[key] ?? "")).filter(Boolean))
+        new Set(groupedRows.map((item) => String(item.baseRecord[key] ?? "")).filter(Boolean))
       ).sort((a, b) => a.localeCompare(b));
 
     return {
@@ -38,41 +106,33 @@ export const SoftwareInventoryRecords = ({
       departments: getUnique("department"),
       projects: getUnique("project")
     };
-  }, [records]);
+  }, [groupedRows]);
 
   const filtered = useMemo(() => {
     const lowered = search.toLowerCase();
 
-    const base = records.filter((item) => {
-      const searchable = [
-        item.formNo,
-        item.softwareName,
-        item.licenseReference,
-        item.assignedTo,
-        item.employeeId,
-        item.department,
-        item.project,
-        item.hostname,
-        item.requestTicket
-      ]
-        .join(" ")
-        .toLowerCase();
-
-      const bySearch = !lowered || searchable.includes(lowered);
-      const byStatus = !status || item.status === status;
-      const byDepartment = !department || item.department === department;
-      const byProject = !project || item.project === project;
+    const base = groupedRows.filter((item) => {
+      const bySearch = !lowered || item.searchBlob.includes(lowered);
+      const byStatus = !status || item.baseRecord.status === status;
+      const byDepartment = !department || item.baseRecord.department === department;
+      const byProject = !project || item.baseRecord.project === project;
 
       return bySearch && byStatus && byDepartment && byProject;
     });
 
     return [...base].sort((a, b) => {
-      const left = String(a[sortKey] ?? "").toLowerCase();
-      const right = String(b[sortKey] ?? "").toLowerCase();
+      const left =
+        sortKey === "softwareName"
+          ? a.softwareNames.join(" ").toLowerCase()
+          : String(a.baseRecord[sortKey] ?? "").toLowerCase();
+      const right =
+        sortKey === "softwareName"
+          ? b.softwareNames.join(" ").toLowerCase()
+          : String(b.baseRecord[sortKey] ?? "").toLowerCase();
       const compared = left.localeCompare(right);
       return ascending ? compared : -compared;
     });
-  }, [records, search, status, department, project, sortKey, ascending]);
+  }, [groupedRows, search, status, department, project, sortKey, ascending]);
 
   const toggleSort = (key: SortKey) => {
     if (sortKey === key) {
@@ -164,25 +224,35 @@ export const SoftwareInventoryRecords = ({
             </tr>
           </thead>
           <tbody>
-            {filtered.map((record) => (
-              <tr key={record.id}>
-                <td>{record.formNo || "-"}</td>
-                <td>{record.softwareName}</td>
-                <td>{record.licenseReference}</td>
-                <td>{record.assignedTo}</td>
-                <td>{record.status || "-"}</td>
-                <td>{record.updatedAt ? new Date(record.updatedAt).toLocaleString() : "-"}</td>
+            {filtered.map((row) => (
+              <tr key={row.key}>
+                <td>{row.baseRecord.formNo || "-"}</td>
+                <td>
+                  {row.softwareNames.length > 0
+                    ? row.softwareNames.map((item, index) => <div key={`${row.key}-software-${index}`}>{item}</div>)
+                    : "-"}
+                </td>
+                <td>
+                  {row.licenseReferences.some(Boolean)
+                    ? row.licenseReferences.map((item, index) => (
+                        <div key={`${row.key}-license-${index}`}>{item || "-"}</div>
+                      ))
+                    : "-"}
+                </td>
+                <td>{row.baseRecord.assignedTo}</td>
+                <td>{row.baseRecord.status || "-"}</td>
+                <td>{row.baseRecord.updatedAt ? new Date(row.baseRecord.updatedAt).toLocaleString() : "-"}</td>
                 <td className="row-actions">
-                  <button type="button" onClick={() => onView(record)}>
+                  <button type="button" onClick={() => onView(row.baseRecord)}>
                     View
                   </button>
-                  <button type="button" onClick={() => onEdit(record)}>
+                  <button type="button" onClick={() => onEdit(row.baseRecord)}>
                     Edit
                   </button>
-                  <button type="button" className="ghost" onClick={() => void onDelete(record)}>
+                  <button type="button" className="ghost" onClick={() => void onDelete(row.baseRecord)}>
                     Delete
                   </button>
-                  <button type="button" className="print" onClick={() => onPrint(record)}>
+                  <button type="button" className="print" onClick={() => onPrint(row.baseRecord)}>
                     Print
                   </button>
                 </td>

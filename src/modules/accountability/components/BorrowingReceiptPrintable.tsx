@@ -33,7 +33,7 @@ export const BorrowingReceiptPrintable = forwardRef<
 
   return (
     <section className="panel print-shell">
-      <h2 className="no-print">Borrowing Receipt Printable Preview</h2>
+      <h2 className="no-print">Borrowing Receipt Printable</h2>
 
       <div className="print-form print-form--a4 print-form--compact" ref={ref}>
         <header className="print-header">
@@ -153,7 +153,7 @@ export const BorrowingReceiptPrintable = forwardRef<
                     )}
 
                     {!isImageAttachment(file.type || "") && !isPdfAttachment(file.type || "") && (
-                      <p className="pf-attachment-fallback">Attachment preview is not available for this file type.</p>
+                      <p className="pf-attachment-fallback">Attachment view is not available for this file type.</p>
                     )}
                   </div>
                 </article>

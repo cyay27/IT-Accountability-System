@@ -16,6 +16,7 @@ interface RecordsListProps {
   onBorrowingView: (record: AccountabilityRecord) => void;
   onBorrowingDelete: (record: AccountabilityRecord) => void;
   onBorrowingPrint: (record: AccountabilityRecord) => void;
+  onCreateFromPreviousRecord?: (record: AccountabilityRecord) => void;
   onDeliveryView: (record: DeliveryReceiptRecord) => void;
   onDeliveryEdit: (record: DeliveryReceiptRecord) => void;
   onDeliveryDelete: (record: DeliveryReceiptRecord) => void;
@@ -26,6 +27,7 @@ interface RecordsListProps {
 }
 
 type SortKey = keyof AccountabilityRecord;
+type RecordStateFilter = "all" | "active" | "archived";
 const EMPLOYEE_FORM_DROPDOWN_STORAGE_KEY = "ias:employee-form:dropdown-config";
 const REMOVED_PROJECT_OPTIONS = new Set([
   "onboarding 2026",
@@ -37,6 +39,17 @@ const REMOVED_PROJECT_OPTIONS = new Set([
 
 const isRemovedProjectOption = (value: string) =>
   REMOVED_PROJECT_OPTIONS.has(value.trim().toLowerCase());
+
+const isArchivedOrClosedRecord = (record: AccountabilityRecord) => {
+  const workflowNormalized = String(record.workflowStatus ?? "").trim().toLowerCase();
+  if (workflowNormalized.includes("closed") || workflowNormalized.includes("archived")) {
+    return true;
+  }
+
+  return (record.history ?? []).some((entry) =>
+    String(entry.summary ?? "").toLowerCase().includes("accountability record closed")
+  );
+};
 
 const readProjectOptionsFromEmployeeForm = () => {
   try {
@@ -97,6 +110,7 @@ export const RecordsList = ({
   onBorrowingView,
   onBorrowingDelete,
   onBorrowingPrint,
+  onCreateFromPreviousRecord,
   onDeliveryView,
   onDeliveryEdit,
   onDeliveryDelete,
@@ -108,6 +122,7 @@ export const RecordsList = ({
   const [search, setSearch] = useState("");
   const [department, setDepartment] = useState("");
   const [project, setProject] = useState("");
+  const [recordState, setRecordState] = useState<RecordStateFilter>("all");
   const [sortKey, setSortKey] = useState<SortKey>("updatedAt");
   const [ascending, setAscending] = useState(false);
   const [selectedRecord, setSelectedRecord] = useState<AccountabilityRecord | null>(null);
@@ -166,10 +181,15 @@ export const RecordsList = ({
         .toLowerCase();
 
       const bySearch = !lowered || searchable.includes(lowered);
-      const byDepartment = !department || item.department === department;
-      const byProject = !project || item.project === project;
+      const isArchived = isArchivedOrClosedRecord(item);
+      const byDepartment = isArchived || !department || item.department === department;
+      const byProject = isArchived || !project || item.project === project;
+      const byRecordState =
+        recordState === "all" ||
+        (recordState === "archived" && isArchived) ||
+        (recordState === "active" && !isArchived);
 
-      return bySearch && byDepartment && byProject;
+      return bySearch && byDepartment && byProject && byRecordState;
     });
 
     return [...base].sort((a, b) => {
@@ -178,7 +198,7 @@ export const RecordsList = ({
       const compared = left.localeCompare(right);
       return ascending ? compared : -compared;
     });
-  }, [records, search, department, project, sortKey, ascending]);
+  }, [records, search, department, project, recordState, sortKey, ascending]);
 
   const toggleSort = (key: SortKey) => {
     if (sortKey === key) {
@@ -351,6 +371,14 @@ export const RecordsList = ({
             </option>
           ))}
         </select>
+
+        {effectiveTable === "accountability" && (
+          <select value={recordState} onChange={(e) => setRecordState(e.target.value as RecordStateFilter)}>
+            <option value="all">All Records</option>
+            <option value="active">Active Only</option>
+            <option value="archived">Archived / Closed Only</option>
+          </select>
+        )}
       </div>
         )}
 
@@ -379,14 +407,18 @@ export const RecordsList = ({
               </tr>
             </thead>
             <tbody>
-              {filtered.map((record) => (
-                <tr key={record.id} className={selectedRecord?.id === record.id ? "selected" : ""} onClick={() => setSelectedRecord(record)}>
+              {filtered.map((record) => {
+                const isArchived = isArchivedOrClosedRecord(record);
+                const rowClassName = `${selectedRecord?.id === record.id ? "selected" : ""} ${isArchived ? "archived-row" : ""}`.trim();
+
+                return (
+                <tr key={record.id} className={rowClassName} onClick={() => setSelectedRecord(record)}>
                   <td>{record.empId}</td>
                   <td>{[record.firstName, record.middleName, record.lastName].filter(Boolean).join(" ")}</td>
                   <td>{record.department}</td>
                   <td>{record.project}</td>
                   <td>{record.attachments?.length ?? 0}</td>
-                  <td>{record.workflowStatus || "Pending Employee Signature"}</td>
+                  <td>{isArchived ? "Archived / Closed" : record.workflowStatus || "Pending Employee Signature"}</td>
                   <td>{record.previousHolders?.length ?? 0}</td>
                   <td>{record.archivedAssignments?.length ?? 0}</td>
                   <td>{record.returnHistory?.length ?? 0}</td>
@@ -394,12 +426,30 @@ export const RecordsList = ({
                   <td className="row-actions">
                     <button type="button" onClick={(e) => { e.stopPropagation(); onView(record); }} title="View accountability form">View</button>
                     <button type="button" onClick={(e) => { e.stopPropagation(); onEdit(record); }} title="Edit accountability record">Edit</button>
+                    {onCreateFromPreviousRecord && (
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onCreateFromPreviousRecord(record);
+                        }}
+                        title="Create new accountability form using this device"
+                      >
+                        New Form
+                      </button>
+                    )}
                     <button type="button" className="ghost" onClick={(e) => { e.stopPropagation(); handleViewHistory(record); }} title="View edit, holder, and return history">History</button>
                     <button type="button" className="ghost" onClick={(e) => { e.stopPropagation(); void onDelete(record); }}>Delete</button>
                     <button type="button" className="print" onClick={(e) => { e.stopPropagation(); onPrint(record); }} title="Print accountability form">Print</button>
                   </td>
                 </tr>
-              ))}
+                );
+              })}
+              {filtered.length === 0 && (
+                <tr>
+                  <td colSpan={11}>No accountability records found for the selected filters.</td>
+                </tr>
+              )}
             </tbody>
           </table>
         </div>
@@ -449,7 +499,7 @@ export const RecordsList = ({
                       <td>{borrowing.releasedBy || "-"}</td>
                       <td>{borrowing.releaseDateTime || "-"}</td>
                       <td className="row-actions">
-                        <button type="button" onClick={() => onBorrowingView(record)} title="View borrowing receipt preview">View</button>
+                        <button type="button" onClick={() => onBorrowingView(record)} title="View borrowing receipt">View</button>
                         <button type="button" onClick={() => onBorrowing(record)} title="Edit borrowing receipt">Edit</button>
                         <button type="button" className="ghost" onClick={() => onBorrowingDelete(record)} title="Delete borrowing receipt">Delete</button>
                         <button type="button" className="print" onClick={() => onBorrowingPrint(record)} title="Print borrowing receipt">Print</button>

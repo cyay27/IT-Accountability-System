@@ -22,7 +22,7 @@ export const DisposalPrintable = forwardRef<HTMLDivElement, DisposalPrintablePro
 
     return (
       <section className="panel print-shell">
-        <h2 className="no-print">Disposal Printable Preview</h2>
+        <h2 className="no-print">Disposal Printable</h2>
 
         <div className="print-form print-form--a4" ref={ref}>
           <header className="print-header">
@@ -47,7 +47,7 @@ export const DisposalPrintable = forwardRef<HTMLDivElement, DisposalPrintablePro
           <table className="pf-table" style={{ marginTop: "6px" }}>
             <tbody>
               <tr>
-                <td className="pf-lbl" style={{ width: "20%" }}>Disposal No.</td>
+                <td className="pf-lbl" style={{ width: "20%" }}>UMAC No.</td>
                 <td className="pf-val">{valueOrDash(record.disposalNo)}</td>
                 <td className="pf-lbl" style={{ width: "20%" }}>Status</td>
                 <td className="pf-val">{valueOrDash(record.status)}</td>

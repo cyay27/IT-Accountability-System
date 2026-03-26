@@ -5,7 +5,7 @@ interface IPadInventoryProps {
   records: AccountabilityRecord[];
 }
 
-const normalize = (value: string) => value.trim().toLowerCase();
+const normalize = (value?: string) => String(value ?? "").trim().toLowerCase();
 
 export const IPadInventory = ({ records }: IPadInventoryProps) => {
   const [search, setSearch] = useState("");

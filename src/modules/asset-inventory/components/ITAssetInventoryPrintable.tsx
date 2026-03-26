@@ -56,7 +56,7 @@ export const ITAssetInventoryPrintable = forwardRef<
 
   return (
     <section className="panel print-shell">
-      <h2 className="no-print">IT Asset Inventory Printable Preview</h2>
+      <h2 className="no-print">IT Asset Inventory Printable</h2>
 
       <div className="print-form" ref={ref}>
         <header className="print-header">

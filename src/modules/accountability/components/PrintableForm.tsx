@@ -44,7 +44,7 @@ const dataUrlToBlob = (dataUrl: string) => {
 const openAttachmentInNewTab = (dataUrl: string) => {
   const blob = dataUrlToBlob(dataUrl);
   if (!blob) {
-    window.alert("Unable to open attachment preview.");
+    window.alert("Unable to open attachment.");
     return;
   }
 
@@ -79,6 +79,17 @@ const formatDate = (value?: string) => {
 };
 
 const lineValue = (value?: string) => (value?.trim() ? value : "\u00a0");
+
+const splitSoftwareNames = (value: string) =>
+  value
+    .split(/[\n,]/)
+    .map((item) => item.trim())
+    .filter(Boolean);
+
+const splitSoftwareLicenses = (value: string) =>
+  value
+    .split(/[\n,]/)
+    .map((item) => item.trim());
 
 export const PrintableForm = forwardRef<HTMLDivElement, PrintableFormProps>(({ record }, ref) => {
   if (!record) {
@@ -134,12 +145,20 @@ export const PrintableForm = forwardRef<HTMLDivElement, PrintableFormProps>(({ r
     deviceRows.push({ type: "", description: "", hostname: "", serial: "", condition: "", asset: "" });
   }
 
-  const softwareRows = [
-    {
-      app: record.softwareName,
-      license: record.softwareLicense
-    }
-  ];
+  const parsedSoftwareNames = splitSoftwareNames(record.softwareName);
+  const parsedSoftwareLicenses = splitSoftwareLicenses(record.softwareLicense);
+
+  const softwareRows = parsedSoftwareNames.length
+    ? parsedSoftwareNames.map((softwareName, index) => ({
+        app: softwareName,
+        license: parsedSoftwareLicenses[index] ?? ""
+      }))
+    : [
+        {
+          app: "",
+          license: ""
+        }
+      ];
 
   while (softwareRows.length < 5) {
     softwareRows.push({ app: "", license: "" });
@@ -160,7 +179,7 @@ export const PrintableForm = forwardRef<HTMLDivElement, PrintableFormProps>(({ r
 
   return (
     <section className="panel print-shell">
-      <h2 className="no-print">Printable Form Preview</h2>
+      <h2 className="no-print">Printable Form</h2>
       <div className="print-form print-form--a4 mdc-aaf" ref={ref}>
         <section className={`mdc-aaf-page${attachments.length > 0 ? " mdc-aaf-page--with-attachments" : ""}`}>
           <header className="mdc-aaf-header">
@@ -510,7 +529,7 @@ export const PrintableForm = forwardRef<HTMLDivElement, PrintableFormProps>(({ r
 
                     {!isImageAttachment(file.type || "") && !isPdfAttachment(file.type || "") && (
                       <p className="pf-attachment-fallback">
-                        Preview is unavailable for this file type.
+                        View is unavailable for this file type.
                       </p>
                     )}
                   </div>
