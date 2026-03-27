@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
 import { SoftwareInventoryRecord } from "../types/softwareInventory";
+import { DeleteIcon, EditIcon, PrintIcon, ViewIcon } from "../../../shared/components/ActionIcons";
 
 interface SoftwareInventoryRecordsProps {
   records: SoftwareInventoryRecord[];
@@ -227,33 +228,47 @@ export const SoftwareInventoryRecords = ({
             {filtered.map((row) => (
               <tr key={row.key}>
                 <td>{row.baseRecord.formNo || "-"}</td>
-                <td>
-                  {row.softwareNames.length > 0
-                    ? row.softwareNames.map((item, index) => <div key={`${row.key}-software-${index}`}>{item}</div>)
-                    : "-"}
+                <td className="software-stack-cell">
+                  {row.softwareNames.length > 0 ? (
+                    <div className="software-stack">
+                      {row.softwareNames.map((item, index) => (
+                        <span className="software-stack-item" key={`${row.key}-software-${index}`}>
+                          {item}
+                        </span>
+                      ))}
+                    </div>
+                  ) : (
+                    "-"
+                  )}
                 </td>
-                <td>
-                  {row.licenseReferences.some(Boolean)
-                    ? row.licenseReferences.map((item, index) => (
-                        <div key={`${row.key}-license-${index}`}>{item || "-"}</div>
-                      ))
-                    : "-"}
+                <td className="software-stack-cell">
+                  {row.licenseReferences.some(Boolean) ? (
+                    <div className="software-stack">
+                      {row.licenseReferences.map((item, index) => (
+                        <span className="software-stack-item" key={`${row.key}-license-${index}`}>
+                          {item || "-"}
+                        </span>
+                      ))}
+                    </div>
+                  ) : (
+                    "-"
+                  )}
                 </td>
                 <td>{row.baseRecord.assignedTo}</td>
                 <td>{row.baseRecord.status || "-"}</td>
                 <td>{row.baseRecord.updatedAt ? new Date(row.baseRecord.updatedAt).toLocaleString() : "-"}</td>
-                <td className="row-actions">
-                  <button type="button" onClick={() => onView(row.baseRecord)}>
-                    View
+                <td className="row-actions software-row-actions">
+                  <button type="button" onClick={() => onView(row.baseRecord)} title="View" aria-label="View">
+                    <ViewIcon />
                   </button>
-                  <button type="button" onClick={() => onEdit(row.baseRecord)}>
-                    Edit
+                  <button type="button" onClick={() => onEdit(row.baseRecord)} title="Edit" aria-label="Edit">
+                    <EditIcon />
                   </button>
-                  <button type="button" className="ghost" onClick={() => void onDelete(row.baseRecord)}>
-                    Delete
+                  <button type="button" className="ghost" onClick={() => void onDelete(row.baseRecord)} title="Delete" aria-label="Delete">
+                    <DeleteIcon />
                   </button>
-                  <button type="button" className="print" onClick={() => onPrint(row.baseRecord)}>
-                    Print
+                  <button type="button" className="print" onClick={() => onPrint(row.baseRecord)} title="Print" aria-label="Print">
+                    <PrintIcon />
                   </button>
                 </td>
               </tr>

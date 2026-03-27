@@ -4,25 +4,20 @@ interface HeaderBarProps {
   localMode: boolean;
   title?: string;
   userEmail?: string;
+  darkMode: boolean;
+  onToggleDarkMode: () => void;
   onLogout?: () => void;
 }
 
 export const HeaderBar = ({
   title = "IT Accountability Form",
   userEmail,
+  darkMode,
+  onToggleDarkMode,
   onLogout
 }: HeaderBarProps) => {
   const [menuOpen, setMenuOpen] = useState(false);
-  const [darkMode, setDarkMode] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    document.body.classList.toggle("dark-mode", darkMode);
-
-    return () => {
-      document.body.classList.remove("dark-mode");
-    };
-  }, [darkMode]);
 
   useEffect(() => {
     const handleOutsideClick = (event: MouseEvent) => {
@@ -41,7 +36,7 @@ export const HeaderBar = ({
   }, [menuOpen]);
 
   const handleToggleDarkMode = () => {
-    setDarkMode((prev) => !prev);
+    onToggleDarkMode();
     setMenuOpen(false);
   };
 

@@ -33,6 +33,11 @@ import { DisposalRecord } from "./modules/disposal/types/disposal";
 import { IPadInventory } from "./modules/ipad-inventory/components/IPadInventory";
 import { IPadInventoryPrintable } from "./modules/ipad-inventory/components/IPadInventoryPrintable";
 import { useIpadInventoryRecords } from "./modules/ipad-inventory/hooks/useIpadInventoryRecords";
+import { LicenseMaintenanceForm } from "./modules/license-maintenance/components/LicenseMaintenanceForm";
+import { LicenseMaintenanceRecords } from "./modules/license-maintenance/components/LicenseMaintenanceRecords";
+import { LicenseMaintenanceView } from "./modules/license-maintenance/components/LicenseMaintenanceView";
+import { useLicenseMaintenanceRecords } from "./modules/license-maintenance/hooks/useLicenseMaintenanceRecords";
+import { LicenseMaintenanceRecord } from "./modules/license-maintenance/types/licenseMaintenance";
 import { LandingPage } from "./modules/navigation/components/LandingPage";
 import { SelectionPage } from "./modules/navigation/components/SelectionPage";
 import { ReturnedAssetsChart } from "./modules/returned-assets/components/ReturnedAssetsChart";
@@ -178,6 +183,7 @@ const applyEmployeeStatusRules = (record: AccountabilityRecord): AccountabilityR
 };
 
 const DELIVERY_RECEIPT_STORAGE_KEY = "ias:delivery-receipt-records";
+const THEME_STORAGE_KEY = "ias:theme";
 
 const readDeliveryReceiptRecords = (): DeliveryReceiptRecord[] => {
   try {
@@ -208,11 +214,24 @@ type ModuleKey =
   | "it-accountability-form"
   | "it-asset-inventory"
   | "it-software-inventory"
+  | "license-maintenance"
   | "ipad-inventory"
   | "disposal"
   | "returned-assets";
 
+type NavigationSnapshot = {
+  module: ModuleKey;
+  view: ActiveView;
+};
+
 function App() {
+  const [darkMode, setDarkMode] = useState(() => {
+    try {
+      return localStorage.getItem(THEME_STORAGE_KEY) === "dark";
+    } catch {
+      return false;
+    }
+  });
   const [authReady, setAuthReady] = useState(false);
   const [authUser, setAuthUser] = useState<User | null>(null);
   const [authError, setAuthError] = useState("");
@@ -278,6 +297,18 @@ function App() {
     useState<SoftwareInventoryRecord | null>(null);
   const [selectedSoftwareRecord, setSelectedSoftwareRecord] =
     useState<SoftwareInventoryRecord | null>(null);
+  const {
+    records: licenseMaintenanceRecords,
+    loading: licenseMaintenanceLoading,
+    error: licenseMaintenanceError,
+    createRecord: createLicenseMaintenanceRecord,
+    updateRecord: updateLicenseMaintenanceRecord,
+    removeRecord: removeLicenseMaintenanceRecord
+  } = useLicenseMaintenanceRecords();
+  const [editingLicenseMaintenanceRecord, setEditingLicenseMaintenanceRecord] =
+    useState<LicenseMaintenanceRecord | null>(null);
+  const [selectedLicenseMaintenanceRecord, setSelectedLicenseMaintenanceRecord] =
+    useState<LicenseMaintenanceRecord | null>(null);
   const [pendingSoftwarePrint, setPendingSoftwarePrint] = useState(false);
   const [pendingIpadPrint, setPendingIpadPrint] = useState(false);
   const [pendingReturnedAssetsPrint, setPendingReturnedAssetsPrint] = useState(false);
@@ -300,6 +331,16 @@ function App() {
   );
 
   const printRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    document.body.classList.toggle("dark-mode", darkMode);
+
+    try {
+      localStorage.setItem(THEME_STORAGE_KEY, darkMode ? "dark" : "light");
+    } catch {
+      // Ignore storage failures (private mode/storage restrictions)
+    }
+  }, [darkMode]);
   const borrowingPrintRef = useRef<HTMLDivElement>(null);
   const deliveryReceiptPrintRef = useRef<HTMLDivElement>(null);
   const assetPrintRef = useRef<HTMLDivElement>(null);
@@ -308,6 +349,63 @@ function App() {
   const returnedAssetsPrintRef = useRef<HTMLDivElement>(null);
   const disposalPrintRef = useRef<HTMLDivElement>(null);
   const lastReturnedAssetsSyncKeyRef = useRef<Record<string, string>>({});
+  const navigationHistoryRef = useRef<NavigationSnapshot[]>([]);
+  const lastNavigationRef = useRef<NavigationSnapshot | null>(null);
+
+  useEffect(() => {
+    if (showLanding || !selectedModule) {
+      return;
+    }
+
+    const current: NavigationSnapshot = {
+      module: selectedModule,
+      view: activeView
+    };
+
+    const previous = lastNavigationRef.current;
+    if (!previous) {
+      lastNavigationRef.current = current;
+      return;
+    }
+
+    if (previous.module === current.module && previous.view === current.view) {
+      return;
+    }
+
+    navigationHistoryRef.current.push(previous);
+    if (navigationHistoryRef.current.length > 120) {
+      navigationHistoryRef.current.shift();
+    }
+
+    lastNavigationRef.current = current;
+  }, [showLanding, selectedModule, activeView]);
+
+  const handleSidebarBack = () => {
+    let previous = navigationHistoryRef.current.pop();
+
+    while (
+      previous &&
+      previous.module === selectedModule &&
+      previous.view === activeView
+    ) {
+      previous = navigationHistoryRef.current.pop();
+    }
+
+    if (previous) {
+      setSelectedModule(previous.module);
+      setActiveView(previous.view);
+      lastNavigationRef.current = previous;
+      return;
+    }
+
+    setSelectedModule(null);
+  };
+
+  const handleGoToSelectionPage = () => {
+    navigationHistoryRef.current = [];
+    lastNavigationRef.current = null;
+    setSelectedModule(null);
+  };
 
   useEffect(() => {
     if (!isFirebaseConfigured || !isAdminUidConfigured) {
@@ -918,7 +1016,44 @@ function App() {
       }
     });
 
+    const softwareName = String(cleaned.softwareName ?? "").trim();
+    const seatsUsed = Number.parseInt(String(cleaned.seatsUsed ?? "0"), 10);
+
     if (editingSoftwareRecord?.id) {
+      // When editing: restore old seats used, then subtract new seats used from license record
+      const oldSeatsUsed = Number.parseInt(String(editingSoftwareRecord.seatsUsed ?? "0"), 10);
+      const oldSoftwareName = String(editingSoftwareRecord.softwareName ?? "").trim();
+
+      // Restore old software if name changed
+      if (oldSoftwareName && oldSoftwareName !== softwareName) {
+        const oldLicense = licenseMaintenanceRecords.find(
+          (item) => String(item.softwareName ?? "").trim() === oldSoftwareName
+        );
+        if (oldLicense && oldLicense.id) {
+          const restoredQuantity = String(
+            Number.parseInt(String(oldLicense.quantity ?? "0"), 10) + oldSeatsUsed
+          );
+          await updateLicenseMaintenanceRecord(oldLicense.id, {
+            ...oldLicense,
+            quantity: restoredQuantity
+          });
+        }
+      } else if (oldSoftwareName && oldSeatsUsed !== seatsUsed) {
+        // Same software, just update seats difference
+        const license = licenseMaintenanceRecords.find(
+          (item) => String(item.softwareName ?? "").trim() === oldSoftwareName
+        );
+        if (license && license.id) {
+          const quantityDiff = oldSeatsUsed - seatsUsed;
+          const updatedQuantity = String(Number.parseInt(String(license.quantity ?? "0"), 10) + quantityDiff);
+          await updateLicenseMaintenanceRecord(license.id, {
+            ...license,
+            quantity: updatedQuantity
+          });
+        }
+      }
+
+      // Update software record
       await updateSoftwareRecord(editingSoftwareRecord.id, cleaned);
       setEditingSoftwareRecord(null);
       setSelectedSoftwareRecord((prev) => {
@@ -928,6 +1063,21 @@ function App() {
       setSelectedModule("it-software-inventory");
       setActiveView("records");
       return;
+    }
+
+    // When creating: subtract seats used from license record
+    if (softwareName && seatsUsed > 0) {
+      const license = licenseMaintenanceRecords.find(
+        (item) => String(item.softwareName ?? "").trim() === softwareName
+      );
+      if (license && license.id) {
+        const currentQuantity = Number.parseInt(String(license.quantity ?? "0"), 10);
+        const newQuantity = Math.max(0, currentQuantity - seatsUsed);
+        await updateLicenseMaintenanceRecord(license.id, {
+          ...license,
+          quantity: String(newQuantity)
+        });
+      }
     }
 
     await createSoftwareRecord(cleaned);
@@ -941,9 +1091,76 @@ function App() {
       `Delete software form for ${record.softwareName} - ${record.assignedTo}?`
     );
     if (!confirmed) return;
+
+    // Restore seats back to license record when deleting
+    const softwareName = String(record.softwareName ?? "").trim();
+    const seatsUsed = Number.parseInt(String(record.seatsUsed ?? "0"), 10);
+    
+    if (softwareName && seatsUsed > 0) {
+      const license = licenseMaintenanceRecords.find(
+        (item) => String(item.softwareName ?? "").trim() === softwareName
+      );
+      if (license && license.id) {
+        const currentQuantity = Number.parseInt(String(license.quantity ?? "0"), 10);
+        const restoredQuantity = currentQuantity + seatsUsed;
+        await updateLicenseMaintenanceRecord(license.id, {
+          ...license,
+          quantity: String(restoredQuantity)
+        });
+      }
+    }
+
     await removeSoftwareRecord(record.id);
     if (selectedSoftwareRecord?.id === record.id) setSelectedSoftwareRecord(null);
     if (editingSoftwareRecord?.id === record.id) setEditingSoftwareRecord(null);
+  };
+
+  const handleLicenseMaintenanceSubmit = async (record: LicenseMaintenanceRecord) => {
+    const cleaned: LicenseMaintenanceRecord = { ...record };
+    Object.keys(cleaned).forEach((key) => {
+      const typedKey = key as keyof LicenseMaintenanceRecord;
+      if (typeof cleaned[typedKey] === "string") {
+        cleaned[typedKey] = String(cleaned[typedKey]).trim() as never;
+      }
+    });
+
+    if (editingLicenseMaintenanceRecord?.id) {
+      await updateLicenseMaintenanceRecord(editingLicenseMaintenanceRecord.id, cleaned);
+      setEditingLicenseMaintenanceRecord(null);
+      setSelectedLicenseMaintenanceRecord((prev) => {
+        if (!prev || prev.id !== editingLicenseMaintenanceRecord.id) return prev;
+        return { ...cleaned, id: prev.id };
+      });
+      setSelectedModule("license-maintenance");
+      setActiveView("records");
+      return;
+    }
+
+    await createLicenseMaintenanceRecord(cleaned);
+    setSelectedModule("license-maintenance");
+    setActiveView("records");
+  };
+
+  const handleLicenseMaintenanceDelete = async (record: LicenseMaintenanceRecord) => {
+    if (!record.id) return;
+    const confirmed = window.confirm(
+      `Delete license record for ${record.softwareName} (${record.vendor})?`
+    );
+    if (!confirmed) return;
+
+    await removeLicenseMaintenanceRecord(record.id);
+    if (selectedLicenseMaintenanceRecord?.id === record.id) setSelectedLicenseMaintenanceRecord(null);
+    if (editingLicenseMaintenanceRecord?.id === record.id) setEditingLicenseMaintenanceRecord(null);
+  };
+
+  const handleViewLicenseMaintenanceRecord = (record: LicenseMaintenanceRecord) => {
+    setSelectedLicenseMaintenanceRecord(record);
+    setActiveView("printable");
+  };
+
+  const handleEditLicenseMaintenanceRecord = (record: LicenseMaintenanceRecord) => {
+    setEditingLicenseMaintenanceRecord(record);
+    setActiveView("form");
   };
 
   const handlePrintRecord = (record: AccountabilityRecord) => {
@@ -1277,6 +1494,10 @@ function App() {
       setActiveView("form");
       return;
     }
+    if (typed === "license-maintenance") {
+      setActiveView("form");
+      return;
+    }
     if (typed === "ipad-inventory") {
       setActiveView("inventory");
       return;
@@ -1406,6 +1627,7 @@ function App() {
   const isNewItemModule = selectedModule === "new-item";
   const isAssetInventoryModule = selectedModule === "it-asset-inventory";
   const isSoftwareInventoryModule = selectedModule === "it-software-inventory";
+  const isLicenseMaintenanceModule = selectedModule === "license-maintenance";
   const isIpadInventoryModule = selectedModule === "ipad-inventory";
   const isDisposalModule = selectedModule === "disposal";
   const isReturnedAssetsModule = selectedModule === "returned-assets";
@@ -1415,9 +1637,23 @@ function App() {
   const accountabilityDepartmentOptions = Array.from(
     new Set(records.map((item) => String(item.department ?? "").trim()).filter(Boolean))
   ).sort((left, right) => left.localeCompare(right));
-  const accountabilitySoftwareNameOptions = Array.from(
-    new Set(records.map((item) => String(item.softwareName ?? "").trim()).filter(Boolean))
-  ).sort((left, right) => left.localeCompare(right));
+  const softwareNameAvailability = licenseMaintenanceRecords.reduce<Record<string, number>>(
+    (acc, item) => {
+      const name = String(item.softwareName ?? "").trim();
+      if (!name) {
+        return acc;
+      }
+
+      const quantity = Number.parseInt(String(item.quantity ?? "0"), 10);
+      if (!Number.isFinite(quantity) || quantity <= 0) {
+        return acc;
+      }
+
+      acc[name] = (acc[name] ?? 0) + quantity;
+      return acc;
+    },
+    {}
+  );
   const moduleThemeClass = selectedModule ? `theme-${selectedModule}` : "";
 
   const visibleRecords = records.filter(
@@ -1451,6 +1687,8 @@ function App() {
     ? "IT Asset Inventory"
     : isSoftwareInventoryModule
       ? "IT Software Inventory"
+      : isLicenseMaintenanceModule
+        ? "License Maintenance"
       : isIpadInventoryModule
         ? "IPAD Inventory"
         : isDisposalModule
@@ -1465,6 +1703,8 @@ function App() {
         localMode={useLocalMode}
         title={headerTitle}
         userEmail={authUser.email ?? "Admin"}
+        darkMode={darkMode}
+        onToggleDarkMode={() => setDarkMode((prev) => !prev)}
         onLogout={() => {
           void handleLogout();
         }}
@@ -1589,6 +1829,17 @@ function App() {
                 </button>
                 <button
                   type="button"
+                  className={`nav-btn${activeView === "records" ? " nav-btn--active" : ""}`}
+                  onClick={() => {
+                    setRecordsInitialTable("borrowing");
+                    setActiveView("records");
+                  }}
+                >
+                  <span className="nav-icon">☰</span>
+                  Borrowing Records
+                </button>
+                <button
+                  type="button"
                   className={`nav-btn${activeView === "chart" ? " nav-btn--active" : ""}`}
                   onClick={() => setActiveView("chart")}
                 >
@@ -1642,6 +1893,43 @@ function App() {
                 >
                   <span className="nav-icon">⎙</span>
                   Printable Form
+                </button>
+              </>
+            )}
+
+            {isLicenseMaintenanceModule && (
+              <>
+                <button
+                  type="button"
+                  className={`nav-btn${activeView === "form" ? " nav-btn--active" : ""}`}
+                  onClick={() => {
+                    setEditingLicenseMaintenanceRecord(null);
+                    setActiveView("form");
+                  }}
+                >
+                  <span className="nav-icon">✦</span>
+                  New License Record
+                </button>
+                <button
+                  type="button"
+                  className={`nav-btn${activeView === "records" ? " nav-btn--active" : ""}`}
+                  onClick={() => setActiveView("records")}
+                >
+                  <span className="nav-icon">☰</span>
+                  License Records
+                </button>
+                <button
+                  type="button"
+                  className={`nav-btn${activeView === "printable" ? " nav-btn--active" : ""}`}
+                  onClick={() => {
+                    if (!selectedLicenseMaintenanceRecord && licenseMaintenanceRecords.length > 0) {
+                      setSelectedLicenseMaintenanceRecord(licenseMaintenanceRecords[0]);
+                    }
+                    setActiveView("printable");
+                  }}
+                >
+                  <span className="nav-icon">◫</span>
+                  View Details
                 </button>
               </>
             )}
@@ -1751,10 +2039,16 @@ function App() {
           <div className="sidebar-bottom">
             <button
               type="button"
-              className="nav-btn nav-btn-danger"
-              onClick={() => {
-                setSelectedModule(null);
-              }}
+              className="nav-btn nav-btn-modules"
+              onClick={handleGoToSelectionPage}
+            >
+              <span className="nav-icon">⌂</span>
+              Modules
+            </button>
+            <button
+              type="button"
+              className="nav-btn nav-btn-danger nav-btn-back"
+              onClick={handleSidebarBack}
             >
               <span className="nav-icon">↩</span>
               Back
@@ -1763,10 +2057,11 @@ function App() {
         </aside>
 
         <main className="main-content">
-          {(accountabilityError || softwareError || borrowingError || assetInventoryError || ipadInventoryError || returnedAssetsError || disposalError) && (
+          {(accountabilityError || softwareError || licenseMaintenanceError || borrowingError || assetInventoryError || ipadInventoryError || returnedAssetsError || disposalError) && (
             <div className="error-box">
               {accountabilityError && <p>{accountabilityError}</p>}
               {softwareError && <p>{softwareError}</p>}
+              {licenseMaintenanceError && <p>{licenseMaintenanceError}</p>}
               {borrowingError && <p>{borrowingError}</p>}
               {assetInventoryError && <p>{assetInventoryError}</p>}
               {ipadInventoryError && <p>{ipadInventoryError}</p>}
@@ -1860,6 +2155,30 @@ function App() {
             />
           )}
 
+          {isAssetInventoryModule && activeView === "records" && (
+            <RecordsList
+              records={records}
+              borrowingReceiptByRecordId={borrowingReceiptByRecordId}
+              deliveryReceiptRecords={deliveryReceiptRecords}
+              initialTable={recordsInitialTable ?? "borrowing"}
+              borrowingOnly
+              onEdit={handleEditRecord}
+              onDelete={handleDelete}
+              onPrint={handlePrintRecord}
+              onView={handleViewRecord}
+              onBorrowing={handleBorrowingRecord}
+              onBorrowingView={handleViewBorrowingRecord}
+              onBorrowingDelete={handleDeleteBorrowingRecord}
+              onBorrowingPrint={handlePrintBorrowingRecord}
+              onCreateFromPreviousRecord={handleCreateNewFormFromPreviousRecord}
+              onDeliveryView={handleViewDeliveryReceiptRecord}
+              onDeliveryEdit={handleEditDeliveryReceiptRecord}
+              onDeliveryDelete={handleDeleteDeliveryReceiptRecord}
+              onDeliveryPrint={handlePrintDeliveryReceiptRecord}
+              printActionType={printActionType}
+            />
+          )}
+
           {isIpadInventoryModule && activeView === "inventory" && (
             <IPadInventory records={ipadInventoryRecords} />
           )}
@@ -1872,11 +2191,22 @@ function App() {
             <SoftwareInventoryForm
               editingRecord={editingSoftwareRecord}
               onSubmit={handleSoftwareSubmit}
-              softwareNameOptionsFromAccountability={accountabilitySoftwareNameOptions}
+              softwareNameAvailability={softwareNameAvailability}
               projectOptionsFromAccountability={accountabilityProjectOptions}
               departmentOptionsFromAccountability={accountabilityDepartmentOptions}
               onCancelEdit={() => {
                 setEditingSoftwareRecord(null);
+                setActiveView("records");
+              }}
+            />
+          )}
+
+          {isLicenseMaintenanceModule && activeView === "form" && (
+            <LicenseMaintenanceForm
+              editingRecord={editingLicenseMaintenanceRecord}
+              onSubmit={handleLicenseMaintenanceSubmit}
+              onCancelEdit={() => {
+                setEditingLicenseMaintenanceRecord(null);
                 setActiveView("records");
               }}
             />
@@ -1925,6 +2255,17 @@ function App() {
             />
           )}
 
+          {isLicenseMaintenanceModule && activeView === "records" && (
+            <LicenseMaintenanceRecords
+              records={licenseMaintenanceRecords}
+              softwareRecords={softwareRecords}
+              loading={licenseMaintenanceLoading}
+              onView={handleViewLicenseMaintenanceRecord}
+              onEdit={handleEditLicenseMaintenanceRecord}
+              onDelete={handleLicenseMaintenanceDelete}
+            />
+          )}
+
           {isSoftwareInventoryModule && activeView === "chart" && (
             <SoftwareInventoryChart records={softwareRecords} />
           )}
@@ -1934,6 +2275,14 @@ function App() {
           )}
 
           {isAccountabilityModule && activeView === "borrowing-printable" && (
+            <BorrowingReceiptPrintable
+              record={selectedRecord}
+              data={selectedRecord?.id ? borrowingReceiptByRecordId[selectedRecord.id] ?? emptyBorrowingReceiptData() : emptyBorrowingReceiptData()}
+              ref={borrowingPrintRef}
+            />
+          )}
+
+          {isAssetInventoryModule && activeView === "borrowing-printable" && (
             <BorrowingReceiptPrintable
               record={selectedRecord}
               data={selectedRecord?.id ? borrowingReceiptByRecordId[selectedRecord.id] ?? emptyBorrowingReceiptData() : emptyBorrowingReceiptData()}
@@ -1960,6 +2309,10 @@ function App() {
               record={selectedSoftwareRecord}
               ref={softwarePrintRef}
             />
+          )}
+
+          {isLicenseMaintenanceModule && activeView === "printable" && (
+            <LicenseMaintenanceView record={selectedLicenseMaintenanceRecord} />
           )}
 
           {isDisposalModule && activeView === "form" && (

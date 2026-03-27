@@ -2,6 +2,14 @@ import { useEffect, useMemo, useState } from "react";
 import { AccountabilityRecord } from "../types/accountability";
 import { BorrowingReceiptData } from "../types/borrowingReceipt";
 import { DeliveryReceiptRecord } from "../types/deliveryReceipt";
+import {
+  DeleteIcon,
+  EditIcon,
+  HistoryIcon,
+  NewFormIcon,
+  PrintIcon,
+  ViewIcon
+} from "../../../shared/components/ActionIcons";
 
 interface RecordsListProps {
   records: AccountabilityRecord[];
@@ -24,6 +32,7 @@ interface RecordsListProps {
   printActionType?: "accountability" | "borrowing" | null;
   deliveryOnly?: boolean;
   accountabilityOnly?: boolean;
+  borrowingOnly?: boolean;
 }
 
 type SortKey = keyof AccountabilityRecord;
@@ -68,6 +77,43 @@ const readProjectOptionsFromEmployeeForm = () => {
   } catch {
     return [] as string[];
   }
+};
+
+const toDate = (value?: string) => {
+  const date = new Date(String(value ?? "").trim());
+  return Number.isNaN(date.getTime()) ? null : date;
+};
+
+const getBorrowingDuration = (dateBorrowed?: string, returnedDate?: string) => {
+  const start = toDate(dateBorrowed);
+  if (!start) {
+    return "-";
+  }
+
+  const end = toDate(returnedDate) ?? new Date();
+  const startDay = new Date(start.getFullYear(), start.getMonth(), start.getDate());
+  const endDay = new Date(end.getFullYear(), end.getMonth(), end.getDate());
+  const msPerDay = 24 * 60 * 60 * 1000;
+  const days = Math.max(Math.floor((endDay.getTime() - startDay.getTime()) / msPerDay), 0);
+  return `${days} day${days === 1 ? "" : "s"}`;
+};
+
+const getBorrowingReturnStatus = (
+  expectedReturnDate?: string,
+  returnedDate?: string,
+  returnRemarks?: string
+) => {
+  if (String(returnedDate ?? "").trim() || String(returnRemarks ?? "").trim()) {
+    return "Returned";
+  }
+
+  const expected = toDate(expectedReturnDate);
+  if (!expected) {
+    return "Borrowed";
+  }
+
+  const now = new Date();
+  return now.getTime() > expected.getTime() ? "Overdue" : "Borrowed";
 };
 
 const AccountabilityIcon = () => (
@@ -117,7 +163,8 @@ export const RecordsList = ({
   onDeliveryPrint,
   printActionType,
   deliveryOnly = false,
-  accountabilityOnly = false
+  accountabilityOnly = false,
+  borrowingOnly = false
 }: RecordsListProps) => {
   const [search, setSearch] = useState("");
   const [department, setDepartment] = useState("");
@@ -135,6 +182,11 @@ export const RecordsList = ({
       return;
     }
 
+    if (borrowingOnly) {
+      setActiveTable("borrowing");
+      return;
+    }
+
     if (accountabilityOnly) {
       setActiveTable("accountability");
       return;
@@ -143,7 +195,7 @@ export const RecordsList = ({
     if (initialTable !== undefined) {
       setActiveTable(initialTable);
     }
-  }, [initialTable, deliveryOnly, accountabilityOnly]);
+  }, [initialTable, deliveryOnly, borrowingOnly, accountabilityOnly]);
 
   const options = useMemo(() => {
     const getUnique = (key: keyof AccountabilityRecord) =>
@@ -291,13 +343,15 @@ export const RecordsList = ({
 
   const effectiveTable = deliveryOnly
     ? "delivery"
+    : borrowingOnly
+      ? "borrowing"
     : accountabilityOnly
       ? "accountability"
       : activeTable;
 
   return (
-    <section className={`panel${deliveryOnly || accountabilityOnly ? "" : " records-with-sidebar"}`}>
-      {!deliveryOnly && !accountabilityOnly && (
+    <section className={`panel${deliveryOnly || borrowingOnly || accountabilityOnly ? "" : " records-with-sidebar"}`}>
+      {!deliveryOnly && !borrowingOnly && !accountabilityOnly && (
         <div className="sidebar-actions">
           <button
             type="button"
@@ -424,8 +478,8 @@ export const RecordsList = ({
                   <td>{record.returnHistory?.length ?? 0}</td>
                   <td>{record.updatedAt ? new Date(record.updatedAt).toLocaleString() : "-"}</td>
                   <td className="row-actions">
-                    <button type="button" onClick={(e) => { e.stopPropagation(); onView(record); }} title="View accountability form">View</button>
-                    <button type="button" onClick={(e) => { e.stopPropagation(); onEdit(record); }} title="Edit accountability record">Edit</button>
+                    <button type="button" onClick={(e) => { e.stopPropagation(); onView(record); }} title="View accountability form" aria-label="View accountability form"><ViewIcon /></button>
+                    <button type="button" onClick={(e) => { e.stopPropagation(); onEdit(record); }} title="Edit accountability record" aria-label="Edit accountability record"><EditIcon /></button>
                     {onCreateFromPreviousRecord && (
                       <button
                         type="button"
@@ -434,13 +488,14 @@ export const RecordsList = ({
                           onCreateFromPreviousRecord(record);
                         }}
                         title="Create new accountability form using this device"
+                        aria-label="Create new form from this record"
                       >
-                        New Form
+                        <NewFormIcon />
                       </button>
                     )}
-                    <button type="button" className="ghost" onClick={(e) => { e.stopPropagation(); handleViewHistory(record); }} title="View edit, holder, and return history">History</button>
-                    <button type="button" className="ghost" onClick={(e) => { e.stopPropagation(); void onDelete(record); }}>Delete</button>
-                    <button type="button" className="print" onClick={(e) => { e.stopPropagation(); onPrint(record); }} title="Print accountability form">Print</button>
+                    <button type="button" className="ghost" onClick={(e) => { e.stopPropagation(); handleViewHistory(record); }} title="View edit, holder, and return history" aria-label="View history"><HistoryIcon /></button>
+                    <button type="button" className="ghost" onClick={(e) => { e.stopPropagation(); void onDelete(record); }} title="Delete accountability record" aria-label="Delete accountability record"><DeleteIcon /></button>
+                    <button type="button" className="print" onClick={(e) => { e.stopPropagation(); onPrint(record); }} title="Print accountability form" aria-label="Print accountability form"><PrintIcon /></button>
                   </td>
                 </tr>
                 );
@@ -464,6 +519,8 @@ export const RecordsList = ({
                 <th>Device Type</th>
                 <th>Date Borrowed</th>
                 <th>Expected Return</th>
+                <th>Duration</th>
+                <th>Return Status</th>
                 <th>Purpose</th>
                 <th>Contact</th>
                 <th>Attachments</th>
@@ -478,7 +535,7 @@ export const RecordsList = ({
             <tbody>
               {borrowingRows.length === 0 ? (
                 <tr>
-                  <td colSpan={15}>No borrowing receipt records found yet. Fill and save a Borrowing Receipt first.</td>
+                  <td colSpan={17}>No borrowing receipt records found yet. Fill and save a Borrowing Receipt first.</td>
                 </tr>
               ) : (
                 borrowingRows
@@ -490,6 +547,8 @@ export const RecordsList = ({
                       <td>{borrowing.deviceType || "-"}</td>
                       <td>{borrowing.dateBorrowed || "-"}</td>
                       <td>{borrowing.expectedReturnDate || "-"}</td>
+                      <td>{getBorrowingDuration(borrowing.dateBorrowed, record.returnedDate)}</td>
+                      <td>{getBorrowingReturnStatus(borrowing.expectedReturnDate, record.returnedDate, borrowing.returnRemarks)}</td>
                       <td>{borrowing.purpose || "-"}</td>
                       <td>{borrowing.contact || "-"}</td>
                       <td>{(borrowing.attachments?.length ?? 0) > 0 ? `${borrowing.attachments.length} file(s)` : "-"}</td>
@@ -499,10 +558,10 @@ export const RecordsList = ({
                       <td>{borrowing.releasedBy || "-"}</td>
                       <td>{borrowing.releaseDateTime || "-"}</td>
                       <td className="row-actions">
-                        <button type="button" onClick={() => onBorrowingView(record)} title="View borrowing receipt">View</button>
-                        <button type="button" onClick={() => onBorrowing(record)} title="Edit borrowing receipt">Edit</button>
-                        <button type="button" className="ghost" onClick={() => onBorrowingDelete(record)} title="Delete borrowing receipt">Delete</button>
-                        <button type="button" className="print" onClick={() => onBorrowingPrint(record)} title="Print borrowing receipt">Print</button>
+                        <button type="button" onClick={() => onBorrowingView(record)} title="View borrowing receipt" aria-label="View borrowing receipt"><ViewIcon /></button>
+                        <button type="button" onClick={() => onBorrowing(record)} title="Edit borrowing receipt" aria-label="Edit borrowing receipt"><EditIcon /></button>
+                        <button type="button" className="ghost" onClick={() => onBorrowingDelete(record)} title="Delete borrowing receipt" aria-label="Delete borrowing receipt"><DeleteIcon /></button>
+                        <button type="button" className="print" onClick={() => onBorrowingPrint(record)} title="Print borrowing receipt" aria-label="Print borrowing receipt"><PrintIcon /></button>
                       </td>
                     </tr>
                   ))
@@ -541,10 +600,10 @@ export const RecordsList = ({
                     <td>{record.otherDetails || "-"}</td>
                     <td>{record.updatedAt ? new Date(record.updatedAt).toLocaleString() : "-"}</td>
                     <td className="row-actions">
-                      <button type="button" onClick={() => onDeliveryView(record)} title="View delivery receipt">View</button>
-                      <button type="button" onClick={() => onDeliveryEdit(record)} title="Edit delivery receipt">Edit</button>
-                      <button type="button" className="ghost" onClick={() => onDeliveryDelete(record)} title="Delete delivery receipt">Delete</button>
-                      <button type="button" className="print" onClick={() => onDeliveryPrint(record)} title="Print delivery receipt">Print</button>
+                      <button type="button" onClick={() => onDeliveryView(record)} title="View delivery receipt" aria-label="View delivery receipt"><ViewIcon /></button>
+                      <button type="button" onClick={() => onDeliveryEdit(record)} title="Edit delivery receipt" aria-label="Edit delivery receipt"><EditIcon /></button>
+                      <button type="button" className="ghost" onClick={() => onDeliveryDelete(record)} title="Delete delivery receipt" aria-label="Delete delivery receipt"><DeleteIcon /></button>
+                      <button type="button" className="print" onClick={() => onDeliveryPrint(record)} title="Print delivery receipt" aria-label="Print delivery receipt"><PrintIcon /></button>
                     </td>
                   </tr>
                 ))

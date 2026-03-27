@@ -9,7 +9,7 @@ import { SignaturePad } from "../../accountability/components/SignaturePad";
 interface SoftwareInventoryFormProps {
   editingRecord: SoftwareInventoryRecord | null;
   onSubmit: (record: SoftwareInventoryRecord) => Promise<void>;
-  softwareNameOptionsFromAccountability?: string[];
+  softwareNameAvailability?: Record<string, number>;
   projectOptionsFromAccountability?: string[];
   departmentOptionsFromAccountability?: string[];
   onCancelEdit: () => void;
@@ -142,7 +142,12 @@ const loadSoftwareDropdownConfig = () => {
         ...(parsed.dropdownFields ?? {}),
         project: false
       },
-      selectOptions: { ...defaultSelectOptions, ...(parsed.selectOptions ?? {}) }
+      selectOptions: {
+        ...defaultSelectOptions,
+        ...(parsed.selectOptions ?? {}),
+        // Keep Software Name choices fixed to defaults to avoid bulk/multi-software sync pollution.
+        softwareName: [...(defaultSelectOptions.softwareName ?? [""])]
+      }
     };
   } catch {
     return {
@@ -154,7 +159,7 @@ const loadSoftwareDropdownConfig = () => {
 
 export const SoftwareInventoryForm = ({
   editingRecord,
-  softwareNameOptionsFromAccountability = [],
+  softwareNameAvailability = {},
   projectOptionsFromAccountability = [],
   departmentOptionsFromAccountability = [],
   onSubmit,
@@ -203,12 +208,11 @@ export const SoftwareInventoryForm = ({
 
       return {
         ...prev,
-        softwareName: normalize([...(prev.softwareName ?? [""]), ...softwareNameOptionsFromAccountability]),
         project: normalize([...(prev.project ?? [""]), ...projectOptionsFromAccountability]),
         department: normalize([...(prev.department ?? [""]), ...departmentOptionsFromAccountability])
       };
     });
-  }, [softwareNameOptionsFromAccountability, projectOptionsFromAccountability, departmentOptionsFromAccountability]);
+  }, [projectOptionsFromAccountability, departmentOptionsFromAccountability]);
 
   const handleSignatureSave = (
     role: "prepared" | "approved",
@@ -423,7 +427,7 @@ export const SoftwareInventoryForm = ({
               </span>
 
               {isSelect ? (
-                <div className="field-select-wrap">
+                <div className="field-select-wrap" style={{ position: "relative" }}>
                   <select
                     value={String(form[key] ?? "")}
                     onChange={(event) =>
@@ -439,6 +443,24 @@ export const SoftwareInventoryForm = ({
                       </option>
                     ))}
                   </select>
+                  {key === "softwareName" && String(form[key] ?? "").trim() && (
+                    <div
+                      style={{
+                        position: "absolute",
+                        right: "32px",
+                        top: "50%",
+                        transform: "translateY(-50%)",
+                        color: "#999",
+                        fontSize: "13px",
+                        pointerEvents: "none",
+                        whiteSpace: "nowrap"
+                      }}
+                    >
+                      {typeof softwareNameAvailability[String(form[key] ?? "")] === "number"
+                        ? `${softwareNameAvailability[String(form[key] ?? "")]} available`
+                        : ""}
+                    </div>
+                  )}
                   <button
                     type="button"
                     className="field-select-add-btn"

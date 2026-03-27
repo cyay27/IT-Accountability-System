@@ -1,61 +1,124 @@
-# IT Assets Accountability System
+# IT Accountability System (OJT)
 
-A TypeScript + React (Vite) app for capturing employee IT asset accountability details and printing a formal A4 accountability form.
+A TypeScript + React (Vite) web app for IT accountability operations, inventory tracking, software inventory, iPad inventory, disposal management, and returned-assets reassignment workflows.
 
-## Features
+## Complete Feature List
 
-- Create, edit, delete accountability records
-- Required-field and email validation
-- Firestore persistence (collection: `accountability_records`)
-- Search, sorting, and filters (Department, Division, Project)
-- Printable A4 form with PHR, AMLD, IT, and CATO signature sections
-- Fallback local mode with sample mock records when Firebase is not configured
+### Core Navigation
+
+- Landing page and system entry screen
+- Module selection page for all major workflows
+- Shared header bar and consistent top-level app navigation
+
+### 1) IT Accountability Module
+
+- Employee accountability form for assigned company assets
+- Create, edit, and delete accountability records
+- Required field validation and structured form input handling
+- Signature capture support through integrated signature pad components
+- Record listing with search and filter support
+- Printable accountability document output
+
+### 2) Borrowing Receipt Workflow
+
+- Borrowing receipt form for temporary asset issuance
+- Borrowing receipt record persistence and retrieval
+- Printable borrowing receipt document
+
+### 3) Delivery Receipt Workflow
+
+- Delivery receipt form for newly delivered or transferred assets
+- Delivery receipt record handling and updates
+- Printable delivery receipt document
+
+### 4) IT Asset Inventory Module
+
+- Consolidated physical asset inventory view
+- Inventory data sourced from accountability and delivery records
+- Inventory analytics/chart visualization
+- Printable IT asset inventory report
+
+### 5) IT Software Inventory Module
+
+- Software inventory form for recording licensed software details
+- Software inventory records table and management workflow
+- Software inventory chart/summary visualization
+- Printable software inventory report
+
+### 6) License Maintenance Module
+
+- License maintenance form with software name, vendor, quantity, date, and product type
+- Conditional product key field behavior (enabled only for Product Key type)
+- CRUD operations (add, edit, delete, view) with validation for required and numeric fields
+- Search and filtering by software name, vendor, and product type
+- Optional proof-of-purchase file name capture
+
+### 7) iPad Inventory Module
+
+- Dedicated iPad inventory management screen
+- iPad records collection and listing
+- Printable iPad inventory output
+
+### 8) Disposal Module
+
+- Disposal form for decommissioned or retired assets
+- Disposal records management (create/edit/list)
+- Printable disposal documentation
+
+### 9) Returned Assets Module
+
+- Returned assets records tracking (for employee offboarding or reassignment)
+- Reassign form for reallocating returned devices
+- Returned assets analytics/chart visualization
+- Printable returned assets output
+
+### Printing and Documentation
+
+- Printable templates for accountability, borrowing receipt, delivery receipt, IT assets, iPads, software inventory, disposal, and returned assets
+- Print-oriented styling via print-specific stylesheet
+
+### Data and Backend Integration
+
+- Firebase initialization via environment variables
+- Firestore-backed persistence across modules
+- Module-specific data hooks for CRUD and synchronization
+- Optional fallback behavior with mock/sample data support in accountability data layer
+
+## Tech Stack
+
+- React + TypeScript
+- Vite
+- Firebase (Auth + Firestore)
+- Tailwind CSS
 
 ## Setup
 
-1. Install dependencies:
+1. Install dependencies.
 
-```bash
-npm install
-```
+	npm install
 
-2. Configure Firebase in `src/firebase.ts`:
+2. Configure environment variables in a local .env file.
 
-- `apiKey`
-- `authDomain`
-- `projectId`
-- `storageBucket`
-- `messagingSenderId`
-- `appId`
+	VITE_FIREBASE_API_KEY=...
+	VITE_FIREBASE_AUTH_DOMAIN=...
+	VITE_FIREBASE_PROJECT_ID=...
+	VITE_FIREBASE_STORAGE_BUCKET=...
+	VITE_FIREBASE_MESSAGING_SENDER_ID=...
+	VITE_FIREBASE_APP_ID=...
+	VITE_FIREBASE_ADMIN_UID=...
 
-3. Ensure Firestore is enabled in your Firebase project.
+3. Ensure Firebase Firestore is enabled in your Firebase project.
 
-4. Start development server:
+4. Run development server.
 
-```bash
-npm run dev
-```
+	npm run dev
 
-5. Build for production:
+5. Build production bundle.
 
-```bash
-npm run build
-```
+	npm run build
 
-## Data Model
+## Project Notes
 
-Each record includes:
-
-- No, Emp ID, Firstname, Middle Name, Last Name, Email
-- Position, Group, Department, Division, Project
-- Cost Center, Project Location
-- Hostname, Serial Number, Device Asset Number
-- Monitor Model, Monitor Serial Number, Monitor Asset Number
-- PHR, AMLD, IT, CATO
-- createdAt, updatedAt
-
-## Print Notes
-
-- Click **View** to preview a selected record form.
-- Click **Print** from a row to print only the formal accountability form section.
-- The print layout is A4 portrait and uses `src/print.css`.
+- Frontend app source is in src/.
+- Firebase client setup is in src/shared/firebase/firebase.ts.
+- Cloud Functions source is in functions/index.js.

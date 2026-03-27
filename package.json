@@ -9,11 +9,21 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@tanstack/react-query": "^5.95.2",
+    "chart.js": "^4.5.1",
+    "dayjs": "^1.11.20",
+    "emailjs-com": "^3.2.0",
+    "lodash": "^4.17.23",
+    "pdf-lib": "^1.17.1",
+    "print-js": "^1.6.0",
     "react": "^18.3.1",
+    "react-chartjs-2": "^5.3.1",
     "react-dom": "^18.3.1",
     "react-to-print": "^2.15.1"
   },
   "devDependencies": {
+    "@types/html2pdf.js": "^0.10.0",
+    "@types/lodash": "^4.17.24",
     "@types/react": "^18.3.5",
     "@types/react-dom": "^18.3.0",
     "@vitejs/plugin-react": "^4.3.1",

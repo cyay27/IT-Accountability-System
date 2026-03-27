@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
 import { AccountabilityRecord } from "../../accountability/types/accountability";
+import { ReassignIcon } from "../../../shared/components/ActionIcons";
 
 interface ReturnedAssetsRecordsProps {
   records: AccountabilityRecord[];
@@ -111,13 +112,15 @@ export const ReturnedAssetsRecords = ({ records, onReassign }: ReturnedAssetsRec
                   </td>
                   <td>{record.returnedDate || "-"}</td>
                   <td>{getReturnedStatus(record)}</td>
-                  <td>
+                  <td className="row-actions">
                     <button
                       type="button"
                       className="ghost"
+                      title="Edit or reassign returned asset"
+                      aria-label="Edit or reassign returned asset"
                       onClick={() => onReassign(record)}
                     >
-                      Edit/Reassign
+                      <ReassignIcon />
                     </button>
                   </td>
               </tr>

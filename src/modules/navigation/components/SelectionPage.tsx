@@ -7,6 +7,7 @@ const MODULES = [
   { key: "it-accountability-form", label: "IT Accountability Form", tone: "primary" },
   { key: "it-asset-inventory", label: "IT Asset Inventory", tone: "cta" },
   { key: "it-software-inventory", label: "IT Software Inventory", tone: "special" },
+  { key: "license-maintenance", label: "License Maintenance", tone: "cta" },
   { key: "ipad-inventory", label: "IPAD Inventory", tone: "secondary" },
   { key: "disposal", label: "Disposal", tone: "alert" },
   { key: "returned-assets", label: "Returned Assets", tone: "success" }

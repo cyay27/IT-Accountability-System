@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
 import { DisposalRecord } from "../types/disposal";
+import { DeleteIcon, EditIcon, PrintIcon, ViewIcon } from "../../../shared/components/ActionIcons";
 
 interface DisposalRecordsProps {
   records: DisposalRecord[];
@@ -91,17 +92,17 @@ export const DisposalRecords = ({ records, onEdit, onDelete, onView, onPrint }: 
                 <td>{record.requestedDate || "-"}</td>
                 <td>{record.disposalDate || "-"}</td>
                 <td className="row-actions">
-                  <button type="button" onClick={() => onView(record)}>
-                    View
+                  <button type="button" onClick={() => onView(record)} title="View" aria-label="View">
+                    <ViewIcon />
                   </button>
-                  <button type="button" onClick={() => onEdit(record)}>
-                    Edit
+                  <button type="button" onClick={() => onEdit(record)} title="Edit" aria-label="Edit">
+                    <EditIcon />
                   </button>
-                  <button type="button" className="ghost" onClick={() => onDelete(record)}>
-                    Delete
+                  <button type="button" className="ghost" onClick={() => onDelete(record)} title="Delete" aria-label="Delete">
+                    <DeleteIcon />
                   </button>
-                  <button type="button" className="print" onClick={() => onPrint(record)}>
-                    Print
+                  <button type="button" className="print" onClick={() => onPrint(record)} title="Print" aria-label="Print">
+                    <PrintIcon />
                   </button>
                 </td>
               </tr>

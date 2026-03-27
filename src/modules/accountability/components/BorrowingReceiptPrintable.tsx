@@ -16,6 +16,43 @@ const formatAttachmentSize = (size: number) => {
   return `${(size / (1024 * 1024)).toFixed(1)} MB`;
 };
 
+const toDate = (value?: string) => {
+  const date = new Date(String(value ?? "").trim());
+  return Number.isNaN(date.getTime()) ? null : date;
+};
+
+const getBorrowingDuration = (dateBorrowed?: string, returnedDate?: string) => {
+  const start = toDate(dateBorrowed);
+  if (!start) {
+    return "-";
+  }
+
+  const end = toDate(returnedDate) ?? new Date();
+  const startDay = new Date(start.getFullYear(), start.getMonth(), start.getDate());
+  const endDay = new Date(end.getFullYear(), end.getMonth(), end.getDate());
+  const msPerDay = 24 * 60 * 60 * 1000;
+  const days = Math.max(Math.floor((endDay.getTime() - startDay.getTime()) / msPerDay), 0);
+  return `${days} day${days === 1 ? "" : "s"}`;
+};
+
+const getBorrowingReturnStatus = (
+  expectedReturnDate?: string,
+  returnedDate?: string,
+  returnRemarks?: string
+) => {
+  if (String(returnedDate ?? "").trim() || String(returnRemarks ?? "").trim()) {
+    return "Returned";
+  }
+
+  const expected = toDate(expectedReturnDate);
+  if (!expected) {
+    return "Borrowed";
+  }
+
+  const now = new Date();
+  return now.getTime() > expected.getTime() ? "Overdue" : "Borrowed";
+};
+
 export const BorrowingReceiptPrintable = forwardRef<
   HTMLDivElement,
   BorrowingReceiptPrintableProps
@@ -64,6 +101,8 @@ export const BorrowingReceiptPrintable = forwardRef<
               <th className="pf-th">Device Type</th>
               <th className="pf-th">Date Borrowed</th>
               <th className="pf-th">Expected Return</th>
+              <th className="pf-th">Duration</th>
+              <th className="pf-th">Return Status</th>
               <th className="pf-th">Purpose</th>
               <th className="pf-th">Contact</th>
               <th className="pf-th">Requested By</th>
@@ -80,6 +119,8 @@ export const BorrowingReceiptPrintable = forwardRef<
               <td className="pf-val">{valueOrDash(data.deviceType)}</td>
               <td className="pf-val">{valueOrDash(data.dateBorrowed)}</td>
               <td className="pf-val">{valueOrDash(data.expectedReturnDate)}</td>
+              <td className="pf-val">{getBorrowingDuration(data.dateBorrowed, record.returnedDate)}</td>
+              <td className="pf-val">{getBorrowingReturnStatus(data.expectedReturnDate, record.returnedDate, data.returnRemarks)}</td>
               <td className="pf-val">{valueOrDash(data.purpose)}</td>
               <td className="pf-val">{valueOrDash(data.contact)}</td>
               <td className="pf-val">{valueOrDash(data.requestedBy)}</td>
