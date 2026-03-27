@@ -760,7 +760,13 @@ function App() {
     }
 
     const snapshotAt = new Date();
-    const snapshotKey = snapshotAt.toISOString().replace(/[-:.TZ]/g, "");
+    const snapshotKey = snapshotAt
+      .toISOString()
+      .split("-").join("")
+      .split(":").join("")
+      .split(".").join("")
+      .split("T").join("")
+      .split("Z").join("");
     const snapshotId = `${recordId}-hist-${snapshotKey}`;
 
     await upsertAssetInventoryRecord({
