@@ -1,12 +1,15 @@
 import { useMemo, useState } from "react";
+import { PrintableForm } from "../../accountability/components/PrintableForm";
 import { AccountabilityRecord } from "../../accountability/types/accountability";
 import { DeliveryReceiptRecord } from "../../accountability/types/deliveryReceipt";
+import { ViewIcon } from "../../../shared/components/ActionIcons";
 
 interface ITAssetInventoryProps {
   records: AccountabilityRecord[];
   newItemRecords: DeliveryReceiptRecord[];
   loading: boolean;
   onRefresh: () => Promise<void> | void;
+  onResolveAccountabilityRecord?: (record: AccountabilityRecord) => AccountabilityRecord | null;
 }
 
 const normalize = (value?: string) => String(value ?? "").trim().toLowerCase();
@@ -42,12 +45,24 @@ const readProjectOptionsFromEmployeeForm = () => {
   }
 };
 
-export const ITAssetInventory = ({ records, newItemRecords, loading, onRefresh }: ITAssetInventoryProps) => {
+export const ITAssetInventory = ({
+  records,
+  newItemRecords,
+  loading,
+  onRefresh,
+  onResolveAccountabilityRecord
+}: ITAssetInventoryProps) => {
   const [hostnameSearch, setHostnameSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
   const [deviceTypeFilter, setDeviceTypeFilter] = useState("");
   const [projectFilter, setProjectFilter] = useState("");
   const [refreshing, setRefreshing] = useState(false);
+  const [previewRecord, setPreviewRecord] = useState<AccountabilityRecord | null>(null);
+
+  const handleViewAccountability = (record: AccountabilityRecord) => {
+    const resolved = onResolveAccountabilityRecord?.(record) ?? record;
+    setPreviewRecord(resolved);
+  };
 
   const handleRefresh = async () => {
     if (refreshing || loading) {
@@ -103,8 +118,10 @@ export const ITAssetInventory = ({ records, newItemRecords, loading, onRefresh }
     return filtered.flatMap((record) => {
       const baseRow = {
         key: `${record.id ?? `${record.empId}-${record.hostname}`}-base`,
+        sourceRecord: record,
         hostname: record.hostname,
         employee: [record.firstName, record.lastName].filter(Boolean).join(" "),
+        position: record.position || "-",
         deviceType: record.deviceType || "-",
         status: record.deviceCondition || "-",
         deviceStatus: record.deviceStatus || "-",
@@ -120,8 +137,10 @@ export const ITAssetInventory = ({ records, newItemRecords, loading, onRefresh }
       const monitorRow = hasMonitor
         ? {
             key: `${record.id ?? `${record.empId}-${record.hostname}`}-monitor`,
+          sourceRecord: record,
             hostname: record.monitorModel || "-",
             employee: [record.firstName, record.lastName].filter(Boolean).join(" "),
+            position: record.position || "-",
             deviceType: "Monitor",
             status: "-",
             deviceStatus: record.deviceStatus || "-",
@@ -207,6 +226,7 @@ export const ITAssetInventory = ({ records, newItemRecords, loading, onRefresh }
               <tr>
                 <th>Hostname</th>
                 <th>Employee</th>
+                <th>Position</th>
                 <th>Device Type</th>
                 <th>Status</th>
                 <th>Device Status</th>
@@ -214,6 +234,7 @@ export const ITAssetInventory = ({ records, newItemRecords, loading, onRefresh }
                 <th>Serial Number</th>
                 <th>Asset Number</th>
                 <th>Updated</th>
+                <th>Actions</th>
               </tr>
             </thead>
             <tbody>
@@ -221,6 +242,7 @@ export const ITAssetInventory = ({ records, newItemRecords, loading, onRefresh }
                 <tr key={row.key}>
                   <td>{row.hostname}</td>
                   <td>{row.employee}</td>
+                  <td>{row.position}</td>
                   <td>{row.deviceType}</td>
                   <td>{row.status}</td>
                   <td>{row.deviceStatus}</td>
@@ -228,11 +250,25 @@ export const ITAssetInventory = ({ records, newItemRecords, loading, onRefresh }
                   <td>{row.serialNumber}</td>
                   <td>{row.assetNumber}</td>
                   <td>{row.updatedAt ? new Date(row.updatedAt).toLocaleString() : "-"}</td>
+                  <td className="row-actions">
+                    {normalize(row.deviceStatus) === "deployed" ? (
+                      <button
+                        type="button"
+                        title="View accountability form"
+                        aria-label="View accountability form"
+                        onClick={() => handleViewAccountability(row.sourceRecord)}
+                      >
+                        <ViewIcon />
+                      </button>
+                    ) : (
+                      "-"
+                    )}
+                  </td>
                 </tr>
               ))}
               {expandedRows.length === 0 && (
                 <tr>
-                  <td colSpan={9}>No assets found for current filters.</td>
+                  <td colSpan={11}>No assets found for current filters.</td>
                 </tr>
               )}
             </tbody>
@@ -284,6 +320,47 @@ export const ITAssetInventory = ({ records, newItemRecords, loading, onRefresh }
           </table>
         </div>
       </section>
+
+      {previewRecord && (
+        <div
+          className="history-modal-backdrop"
+          role="presentation"
+          onClick={() => setPreviewRecord(null)}
+        >
+          <section
+            className="history-modal ipad-accountability-preview-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="asset-accountability-preview-title"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <header className="history-modal-header">
+              <div>
+                <h3 id="asset-accountability-preview-title">Accountability Form Preview</h3>
+                <p className="helper-text">
+                  Viewing accountability record for {[previewRecord.firstName, previewRecord.middleName, previewRecord.lastName].filter(Boolean).join(" ") || previewRecord.empId || "selected user"}.
+                </p>
+              </div>
+              <button
+                type="button"
+                className="ghost ipad-preview-close-btn"
+                aria-label="Close accountability preview"
+                title="Close"
+                onClick={() => setPreviewRecord(null)}
+              >
+                <svg viewBox="0 0 20 20" width="14" height="14" fill="none" aria-hidden="true">
+                  <path d="M5 5 15 15" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+                  <path d="M15 5 5 15" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+                </svg>
+              </button>
+            </header>
+
+            <div className="history-modal-body ipad-accountability-preview-body">
+              <PrintableForm record={previewRecord} />
+            </div>
+          </section>
+        </div>
+      )}
     </section>
   );
 };

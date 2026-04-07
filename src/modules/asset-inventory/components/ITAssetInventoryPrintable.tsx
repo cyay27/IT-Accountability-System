@@ -99,6 +99,7 @@ export const ITAssetInventoryPrintable = forwardRef<
             <tr>
               <th className="pf-th">Hostname</th>
               <th className="pf-th">Employee</th>
+              <th className="pf-th">Position</th>
               <th className="pf-th">Type</th>
               <th className="pf-th">Condition</th>
               <th className="pf-th">Project</th>
@@ -113,6 +114,7 @@ export const ITAssetInventoryPrintable = forwardRef<
                 <td className="pf-val">
                   {[record.firstName, record.lastName].filter(Boolean).join(" ") || "-"}
                 </td>
+                <td className="pf-val">{record.position || "-"}</td>
                 <td className="pf-val">{record.deviceType || "-"}</td>
                 <td className="pf-val">{record.deviceCondition || "-"}</td>
                 <td className="pf-val">{record.project || "-"}</td>
@@ -122,7 +124,7 @@ export const ITAssetInventoryPrintable = forwardRef<
             ))}
             {records.length === 0 && (
               <tr>
-                <td className="pf-val" colSpan={7}>No asset inventory records found.</td>
+                <td className="pf-val" colSpan={8}>No asset inventory records found.</td>
               </tr>
             )}
           </tbody>

@@ -1,10 +1,29 @@
 import { useEffect, useRef, useState } from "react";
 
+type HeaderNotificationItem = {
+  key: string;
+  softwareName: string;
+  contractOrPoNumber: string;
+  expirationDate: string;
+  renewalStatus: string;
+};
+
+type HeaderApiStatus = {
+  label: string;
+  tone: "ok" | "warning";
+  detail?: string;
+};
+
 interface HeaderBarProps {
   localMode: boolean;
   title?: string;
   userEmail?: string;
   darkMode: boolean;
+  apiStatus?: HeaderApiStatus;
+  notificationCount?: number;
+  notificationItems?: HeaderNotificationItem[];
+  onNotificationClick?: () => void;
+  onOpenDiagnostics?: () => void;
   onToggleDarkMode: () => void;
   onLogout?: () => void;
 }
@@ -13,27 +32,39 @@ export const HeaderBar = ({
   title = "IT Accountability Form",
   userEmail,
   darkMode,
+  apiStatus,
+  notificationCount = 0,
+  notificationItems = [],
+  onNotificationClick,
+  onOpenDiagnostics,
   onToggleDarkMode,
   onLogout
 }: HeaderBarProps) => {
   const [menuOpen, setMenuOpen] = useState(false);
+  const [notificationOpen, setNotificationOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
+  const notificationRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const handleOutsideClick = (event: MouseEvent) => {
-      if (!menuRef.current?.contains(event.target as Node)) {
+      const target = event.target as Node;
+      if (!menuRef.current?.contains(target)) {
         setMenuOpen(false);
+      }
+
+      if (!notificationRef.current?.contains(target)) {
+        setNotificationOpen(false);
       }
     };
 
-    if (menuOpen) {
+    if (menuOpen || notificationOpen) {
       document.addEventListener("mousedown", handleOutsideClick);
     }
 
     return () => {
       document.removeEventListener("mousedown", handleOutsideClick);
     };
-  }, [menuOpen]);
+  }, [menuOpen, notificationOpen]);
 
   const handleToggleDarkMode = () => {
     onToggleDarkMode();
@@ -43,6 +74,22 @@ export const HeaderBar = ({
   const handleLogoutClick = () => {
     setMenuOpen(false);
     onLogout?.();
+  };
+
+  const handleOpenDiagnostics = () => {
+    setMenuOpen(false);
+    onOpenDiagnostics?.();
+  };
+
+  const handleNotificationButtonClick = () => {
+    setMenuOpen(false);
+    setNotificationOpen((prev) => !prev);
+    onNotificationClick?.();
+  };
+
+  const handleNotificationItemClick = () => {
+    setNotificationOpen(false);
+    onNotificationClick?.();
   };
 
   return (
@@ -55,7 +102,68 @@ export const HeaderBar = ({
         </div>
       </div>
       <div className="header-actions">
+        {apiStatus && (
+          <button
+            type="button"
+            className={`status-pill api-status-pill ${apiStatus.tone}`}
+            title={apiStatus.detail || apiStatus.label}
+            onClick={onOpenDiagnostics}
+          >
+            {apiStatus.label}
+          </button>
+        )}
         <p className="header-user-email">{userEmail || "Admin"}</p>
+
+        <div className="header-notification-wrap" ref={notificationRef}>
+          <button
+            type="button"
+            className="header-notification-btn"
+            onClick={handleNotificationButtonClick}
+            aria-haspopup="menu"
+            aria-expanded={notificationOpen}
+            aria-label={`Open notifications (${notificationCount})`}
+            title="Open notifications"
+          >
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" aria-hidden="true">
+              <path
+                d="M6.5 16.5h11a1 1 0 0 0 .77-1.64l-1.77-2.16V9.5a4.5 4.5 0 0 0-9 0v3.2L5.73 14.86a1 1 0 0 0 .77 1.64Z"
+                stroke="currentColor"
+                strokeWidth="1.7"
+                strokeLinejoin="round"
+              />
+              <path d="M10 18.5a2 2 0 0 0 4 0" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" />
+            </svg>
+            <span className="header-notification-count" aria-hidden="true">{notificationCount}</span>
+          </button>
+
+          {notificationOpen && (
+            <div className="header-notification-menu" role="menu" aria-label="Notifications">
+              {notificationItems.length === 0 ? (
+                <p className="header-notification-empty">No active notifications.</p>
+              ) : (
+                <>
+                  {notificationItems.map((item) => (
+                    <button
+                      key={item.key}
+                      type="button"
+                      role="menuitem"
+                      className="header-notification-item"
+                      onClick={handleNotificationItemClick}
+                    >
+                      <strong>{item.softwareName}</strong>
+                      <span>Contract/PO: {item.contractOrPoNumber}</span>
+                      <span>Expires: {item.expirationDate}</span>
+                      <span>Status: {item.renewalStatus}</span>
+                    </button>
+                  ))}
+                  <button type="button" role="menuitem" className="header-notification-viewall" onClick={handleNotificationItemClick}>
+                    View in License Maintenance
+                  </button>
+                </>
+              )}
+            </div>
+          )}
+        </div>
 
         <div className="header-menu-wrap" ref={menuRef}>
           <button
@@ -84,6 +192,11 @@ export const HeaderBar = ({
               <button type="button" role="menuitem" onClick={handleToggleDarkMode}>
                 {darkMode ? "Toggle dark mode (On)" : "Toggle dark mode (Off)"}
               </button>
+              {onOpenDiagnostics && (
+                <button type="button" role="menuitem" onClick={handleOpenDiagnostics}>
+                  API diagnostics
+                </button>
+              )}
               <button type="button" role="menuitem" onClick={handleLogoutClick}>
                 Logout
               </button>

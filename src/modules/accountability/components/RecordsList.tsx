@@ -449,6 +449,7 @@ export const RecordsList = ({
               <tr>
                 <th><button type="button" onClick={() => toggleSort("empId")}>Emp ID</button></th>
                 <th><button type="button" onClick={() => toggleSort("lastName")}>Name</button></th>
+                <th><button type="button" onClick={() => toggleSort("position")}>Position</button></th>
                 <th><button type="button" onClick={() => toggleSort("department")}>Department</button></th>
                 <th><button type="button" onClick={() => toggleSort("project")}>Project</button></th>
                 <th>Attachments</th>
@@ -469,6 +470,7 @@ export const RecordsList = ({
                 <tr key={record.id} className={rowClassName} onClick={() => setSelectedRecord(record)}>
                   <td>{record.empId}</td>
                   <td>{[record.firstName, record.middleName, record.lastName].filter(Boolean).join(" ")}</td>
+                  <td>{record.position || "-"}</td>
                   <td>{record.department}</td>
                   <td>{record.project}</td>
                   <td>{record.attachments?.length ?? 0}</td>
@@ -502,7 +504,7 @@ export const RecordsList = ({
               })}
               {filtered.length === 0 && (
                 <tr>
-                  <td colSpan={11}>No accountability records found for the selected filters.</td>
+                  <td colSpan={12}>No accountability records found for the selected filters.</td>
                 </tr>
               )}
             </tbody>

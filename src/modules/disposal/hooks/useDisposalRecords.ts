@@ -10,6 +10,14 @@ import {
   updateDoc
 } from "firebase/firestore";
 import { db, isFirebaseConfigured } from "../../../shared/firebase/firebase";
+import { useFirestoreAdminAccess } from "../../../shared/hooks/useFirestoreAdminAccess";
+import {
+  createApiCollectionRecord,
+  deleteApiCollectionRecord,
+  getApiCollectionRecords,
+  isApiConfigured,
+  updateApiCollectionRecord
+} from "../../../shared/services/apiService";
 import { DisposalRecord } from "../types/disposal";
 
 const COLLECTION_NAME = "disposal_records";
@@ -37,6 +45,8 @@ export const useDisposalRecords = () => {
   const [error, setError] = useState("");
 
   const useLocalMode = useMemo(() => !isFirebaseConfigured, []);
+  const canQueryFirestore = useFirestoreAdminAccess();
+  const useApiMode = isApiConfigured;
 
   const loadRecords = useCallback(async () => {
     setLoading(true);
@@ -44,6 +54,34 @@ export const useDisposalRecords = () => {
 
     if (useLocalMode) {
       setRecords(readLocal());
+      setLoading(false);
+      return;
+    }
+
+    if (useApiMode) {
+      if (!canQueryFirestore) {
+        setLoading(false);
+        return;
+      }
+
+      try {
+        const response = await getApiCollectionRecords<DisposalRecord>(COLLECTION_NAME, {
+          orderBy: "updatedAt",
+          direction: "desc",
+          limit: 100
+        });
+        setRecords(response.records.map((item) => ({ ...item })));
+      } catch {
+        setError("Access denied or unable to load disposal records from API.");
+        setRecords([]);
+      } finally {
+        setLoading(false);
+      }
+
+      return;
+    }
+
+    if (!canQueryFirestore) {
       setLoading(false);
       return;
     }
@@ -62,7 +100,7 @@ export const useDisposalRecords = () => {
     } finally {
       setLoading(false);
     }
-  }, [useLocalMode]);
+  }, [canQueryFirestore, useApiMode, useLocalMode]);
 
   useEffect(() => {
     void loadRecords();
@@ -80,6 +118,18 @@ export const useDisposalRecords = () => {
       const next = [localRecord, ...records];
       setRecords(next);
       writeLocal(next);
+      return;
+    }
+
+    if (useApiMode) {
+      const createdId = crypto.randomUUID();
+      setRecords((prev) => [{ ...payload, id: createdId }, ...prev]);
+
+      await createApiCollectionRecord(COLLECTION_NAME, payload).catch(() => {
+        setError("Unable to save record to API. Please retry.");
+        setRecords((prev) => prev.filter((item) => item.id !== createdId));
+      });
+
       return;
     }
 
@@ -108,6 +158,22 @@ export const useDisposalRecords = () => {
       return;
     }
 
+    if (useApiMode) {
+      const previousRecord = records.find((item) => item.id === id) ?? null;
+      setRecords((prev) => prev.map((item) => (item.id === id ? { ...item, ...payload, id } : item)));
+
+      await updateApiCollectionRecord(COLLECTION_NAME, id, payload).catch(() => {
+        setError("Unable to update record in API. Local changes were reverted.");
+        if (!previousRecord) {
+          return;
+        }
+
+        setRecords((prev) => prev.map((item) => (item.id === id ? previousRecord : item)));
+      });
+
+      return;
+    }
+
     await updateDoc(doc(db, COLLECTION_NAME, id), payload as never);
     setRecords((prev) => prev.map((item) => (item.id === id ? { ...item, ...payload, id } : item)));
   };
@@ -117,6 +183,22 @@ export const useDisposalRecords = () => {
       const next = records.filter((item) => item.id !== id);
       setRecords(next);
       writeLocal(next);
+      return;
+    }
+
+    if (useApiMode) {
+      const previousRecord = records.find((item) => item.id === id) ?? null;
+      setRecords((prev) => prev.filter((item) => item.id !== id));
+
+      await deleteApiCollectionRecord(COLLECTION_NAME, id).catch(() => {
+        setError("Unable to delete record from API. Record was restored.");
+        if (!previousRecord) {
+          return;
+        }
+
+        setRecords((prev) => [previousRecord, ...prev]);
+      });
+
       return;
     }
 

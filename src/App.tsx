@@ -31,6 +31,7 @@ import { DisposalRecords } from "./modules/disposal/components/DisposalRecords";
 import { useDisposalRecords } from "./modules/disposal/hooks/useDisposalRecords";
 import { DisposalRecord } from "./modules/disposal/types/disposal";
 import { IPadInventory } from "./modules/ipad-inventory/components/IPadInventory";
+import { IPadInventoryChart } from "./modules/ipad-inventory/components/IPadInventoryChart";
 import { IPadInventoryPrintable } from "./modules/ipad-inventory/components/IPadInventoryPrintable";
 import { useIpadInventoryRecords } from "./modules/ipad-inventory/hooks/useIpadInventoryRecords";
 import { LicenseMaintenanceForm } from "./modules/license-maintenance/components/LicenseMaintenanceForm";
@@ -52,6 +53,17 @@ import { SoftwareInventoryRecords } from "./modules/software-inventory/component
 import { useSoftwareInventoryRecords } from "./modules/software-inventory/hooks/useSoftwareInventoryRecords";
 import { SoftwareInventoryRecord } from "./modules/software-inventory/types/softwareInventory";
 import { HeaderBar } from "./shared/components/HeaderBar";
+import {
+  getApiDebug,
+  getApiHealth,
+  ApiDebugResponse,
+  ApiHealthResponse,
+  isApiConfigured
+} from "./shared/services/apiService";
+import {
+  isEmailServiceConfigured,
+  sendLicenseExpirationAlert
+} from "./shared/services/emailService";
 import {
   adminUid,
   auth,
@@ -184,6 +196,7 @@ const applyEmployeeStatusRules = (record: AccountabilityRecord): AccountabilityR
 
 const DELIVERY_RECEIPT_STORAGE_KEY = "ias:delivery-receipt-records";
 const THEME_STORAGE_KEY = "ias:theme";
+const LICENSE_EXPIRY_NOTIFICATION_STORAGE_KEY = "ias:license-expiry-notification-log";
 
 const readDeliveryReceiptRecords = (): DeliveryReceiptRecord[] => {
   try {
@@ -224,6 +237,14 @@ type NavigationSnapshot = {
   view: ActiveView;
 };
 
+type LicenseRenewalAlert = {
+  key: string;
+  softwareName: string;
+  contractOrPoNumber: string;
+  expirationDate: string;
+  renewalStatus: string;
+};
+
 function App() {
   const [darkMode, setDarkMode] = useState(() => {
     try {
@@ -238,6 +259,9 @@ function App() {
   const [loginEmail, setLoginEmail] = useState("");
   const [loginPassword, setLoginPassword] = useState("");
   const [isLoggingIn, setIsLoggingIn] = useState(false);
+  const [apiHealth, setApiHealth] = useState<ApiHealthResponse | null>(null);
+  const [apiDebug, setApiDebug] = useState<ApiDebugResponse | null>(null);
+  const [showApiDiagnostics, setShowApiDiagnostics] = useState(false);
   const [showLanding, setShowLanding] = useState(true);
   const [selectedModule, setSelectedModule] = useState<ModuleKey | null>(null);
   const {
@@ -309,6 +333,7 @@ function App() {
     useState<LicenseMaintenanceRecord | null>(null);
   const [selectedLicenseMaintenanceRecord, setSelectedLicenseMaintenanceRecord] =
     useState<LicenseMaintenanceRecord | null>(null);
+  const [licenseRenewalAlerts, setLicenseRenewalAlerts] = useState<LicenseRenewalAlert[]>([]);
   const [pendingSoftwarePrint, setPendingSoftwarePrint] = useState(false);
   const [pendingIpadPrint, setPendingIpadPrint] = useState(false);
   const [pendingReturnedAssetsPrint, setPendingReturnedAssetsPrint] = useState(false);
@@ -341,6 +366,95 @@ function App() {
       // Ignore storage failures (private mode/storage restrictions)
     }
   }, [darkMode]);
+
+  useEffect(() => {
+    const today = new Date();
+    const dayStart = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+    const msPerDay = 24 * 60 * 60 * 1000;
+
+    const upcoming = licenseMaintenanceRecords
+      .map((record) => {
+        const expirationDateRaw = String(record.expirationDate ?? "").trim();
+        if (!expirationDateRaw) {
+          return null;
+        }
+
+        const expirationDate = new Date(`${expirationDateRaw}T00:00:00`);
+        if (Number.isNaN(expirationDate.getTime())) {
+          return null;
+        }
+
+        const expiryDay = new Date(
+          expirationDate.getFullYear(),
+          expirationDate.getMonth(),
+          expirationDate.getDate()
+        );
+        const daysUntilExpiry = Math.floor((expiryDay.getTime() - dayStart.getTime()) / msPerDay);
+        if (daysUntilExpiry < 0 || daysUntilExpiry > 92) {
+          return null;
+        }
+
+        return {
+          key: record.id ?? `${record.softwareName}-${record.contractOrPoNumber}-${expirationDateRaw}`,
+          softwareName: String(record.softwareName ?? "").trim() || "(Unnamed Software)",
+          contractOrPoNumber: String(record.contractOrPoNumber ?? "").trim() || "N/A",
+          expirationDate: expirationDateRaw,
+          renewalStatus: String(record.renewalStatus ?? "").trim() || "N/A"
+        };
+      })
+      .filter(Boolean) as LicenseRenewalAlert[];
+
+    setLicenseRenewalAlerts(upcoming);
+
+    const notificationEmail = authUser?.email;
+    if (!upcoming.length || !notificationEmail || !isEmailServiceConfigured()) {
+      return;
+    }
+
+    const triggerEmailNotifications = async () => {
+      let notificationLog: Record<string, string> = {};
+
+      try {
+        const raw = localStorage.getItem(LICENSE_EXPIRY_NOTIFICATION_STORAGE_KEY);
+        if (raw) {
+          notificationLog = JSON.parse(raw) as Record<string, string>;
+        }
+      } catch {
+        notificationLog = {};
+      }
+
+      for (const alertItem of upcoming) {
+        const notificationKey = `${alertItem.key}|${alertItem.expirationDate}`;
+        if (notificationLog[notificationKey]) {
+          continue;
+        }
+
+        const sent = await sendLicenseExpirationAlert(
+          notificationEmail,
+          authUser?.displayName || notificationEmail,
+          alertItem.softwareName,
+          alertItem.expirationDate,
+          alertItem.contractOrPoNumber,
+          alertItem.renewalStatus
+        );
+
+        if (sent) {
+          notificationLog[notificationKey] = new Date().toISOString();
+        }
+      }
+
+      try {
+        localStorage.setItem(
+          LICENSE_EXPIRY_NOTIFICATION_STORAGE_KEY,
+          JSON.stringify(notificationLog)
+        );
+      } catch {
+        // Ignore storage errors and continue with in-app notifications.
+      }
+    };
+
+    void triggerEmailNotifications();
+  }, [licenseMaintenanceRecords, authUser]);
   const borrowingPrintRef = useRef<HTMLDivElement>(null);
   const deliveryReceiptPrintRef = useRef<HTMLDivElement>(null);
   const assetPrintRef = useRef<HTMLDivElement>(null);
@@ -429,6 +543,82 @@ function App() {
 
     return () => unsubscribe();
   }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const loadApiDiagnostics = async () => {
+      if (!isFirebaseConfigured) {
+        setApiHealth({
+          ok: false,
+          service: "it-accountability-api",
+          timestamp: new Date().toISOString(),
+          message: "Firebase is not configured. The app is using local storage mode."
+        });
+        setApiDebug(null);
+        return;
+      }
+
+      if (!isApiConfigured) {
+        setApiHealth({
+          ok: false,
+          service: "it-accountability-api",
+          timestamp: new Date().toISOString(),
+          message: "VITE_API_BASE_URL is not configured. API diagnostics are disabled."
+        });
+        setApiDebug(null);
+        return;
+      }
+
+      try {
+        const health = await getApiHealth();
+        if (cancelled) {
+          return;
+        }
+
+        setApiHealth(health);
+
+        if (authUser) {
+          try {
+            const debug = await getApiDebug();
+            if (!cancelled) {
+              setApiDebug(debug);
+            }
+          } catch (error) {
+            if (!cancelled) {
+              setApiDebug({
+                ok: false,
+                service: "it-accountability-api",
+                mode: "unavailable",
+                timestamp: new Date().toISOString(),
+                error: error instanceof Error ? error.message : "Unable to load API debug data."
+              });
+            }
+          }
+        } else if (!cancelled) {
+          setApiDebug(null);
+        }
+      } catch (error) {
+        if (!cancelled) {
+          const message = error instanceof Error ? error.message : "Unable to reach the API.";
+          setApiHealth({
+            ok: false,
+            service: "it-accountability-api",
+            timestamp: new Date().toISOString(),
+            error: message,
+            message
+          });
+          setApiDebug(null);
+        }
+      }
+    };
+
+    void loadApiDiagnostics();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [authUser]);
 
   const handleLogin = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -1329,6 +1519,27 @@ function App() {
     setActiveView("borrowing-printable");
   };
 
+  const resolveAccountabilityRecord = (record: AccountabilityRecord) => {
+    const sourceId = String(record.inventorySourceRecordId ?? "").trim();
+    const directId = String(record.id ?? "").trim();
+
+    if (sourceId) {
+      const matchedBySource = records.find((item) => String(item.id ?? "").trim() === sourceId);
+      if (matchedBySource) {
+        return matchedBySource;
+      }
+    }
+
+    if (directId) {
+      const matchedById = records.find((item) => String(item.id ?? "").trim() === directId);
+      if (matchedById) {
+        return matchedById;
+      }
+    }
+
+    return record;
+  };
+
   const handlePrintBorrowingRecord = (record: AccountabilityRecord) => {
     setSelectedRecord(record);
     setPrintActionType("borrowing");
@@ -1703,6 +1914,33 @@ function App() {
             ? "Returned Assets"
       : "IT Accountability Form";
 
+  const handleOpenNotifications = () => {
+    setSelectedModule("license-maintenance");
+    setActiveView("records");
+  };
+
+  const handleOpenApiDiagnostics = () => {
+    setShowApiDiagnostics(true);
+  };
+
+  const apiStatus = isFirebaseConfigured
+    ? apiHealth?.ok
+      ? {
+          label: "API Online",
+          tone: "ok" as const,
+          detail: `${apiHealth.service} responded at ${apiHealth.timestamp}`
+        }
+      : {
+          label: "API Offline",
+          tone: "warning" as const,
+          detail: apiHealth?.message || apiHealth?.error || "The API is unreachable."
+        }
+    : {
+        label: "Local Mode",
+        tone: "warning" as const,
+        detail: "Firebase is not configured. Records are saved locally."
+      };
+
   return (
     <div className={`app-shell ${moduleThemeClass}`}>
       <HeaderBar
@@ -1710,6 +1948,11 @@ function App() {
         title={headerTitle}
         userEmail={authUser.email ?? "Admin"}
         darkMode={darkMode}
+        apiStatus={apiStatus}
+        notificationCount={licenseRenewalAlerts.length}
+        notificationItems={licenseRenewalAlerts}
+        onNotificationClick={handleOpenNotifications}
+        onOpenDiagnostics={handleOpenApiDiagnostics}
         onToggleDarkMode={() => setDarkMode((prev) => !prev)}
         onLogout={() => {
           void handleLogout();
@@ -1952,6 +2195,14 @@ function App() {
                 </button>
                 <button
                   type="button"
+                  className={`nav-btn${activeView === "chart" ? " nav-btn--active" : ""}`}
+                  onClick={() => setActiveView("chart")}
+                >
+                  <span className="nav-icon">◔</span>
+                  Graph
+                </button>
+                <button
+                  type="button"
                   className={`nav-btn${activeView === "printable" ? " nav-btn--active" : ""}`}
                   onClick={() => {
                     setActiveView("printable");
@@ -2076,6 +2327,25 @@ function App() {
             </div>
           )}
 
+          {isLicenseMaintenanceModule && licenseRenewalAlerts.length > 0 && (
+            <section className="panel license-renewal-alerts" role="status" aria-live="polite">
+              <h3>License Expiration Alerts (Next 3 Months)</h3>
+              <p className="helper-text">
+                Notifications are prepared for licenses approaching expiration.
+              </p>
+              <div className="license-renewal-alert-list">
+                {licenseRenewalAlerts.map((item) => (
+                  <article className="license-renewal-alert-item" key={item.key}>
+                    <strong>{item.softwareName}</strong>
+                    <span>Contract/PO: {item.contractOrPoNumber}</span>
+                    <span>Expiration Date: {item.expirationDate}</span>
+                    <span className="license-renewal-alert-status">Status: {item.renewalStatus}</span>
+                  </article>
+                ))}
+              </div>
+            </section>
+          )}
+
           {isNewItemModule && activeView === "delivery-receipt-form" && (
             <DeliveryReceiptForm
               editingRecord={editingDeliveryReceiptRecord}
@@ -2142,6 +2412,7 @@ function App() {
               newItemRecords={deliveryReceiptRecords}
               loading={accountabilityLoading}
               onRefresh={reloadAccountabilityRecords}
+              onResolveAccountabilityRecord={resolveAccountabilityRecord}
             />
           )}
 
@@ -2186,7 +2457,14 @@ function App() {
           )}
 
           {isIpadInventoryModule && activeView === "inventory" && (
-            <IPadInventory records={ipadInventoryRecords} />
+            <IPadInventory
+              records={ipadInventoryRecords}
+              onResolveAccountabilityRecord={resolveAccountabilityRecord}
+            />
+          )}
+
+          {isIpadInventoryModule && activeView === "chart" && (
+            <IPadInventoryChart records={ipadInventoryRecords} />
           )}
 
           {isIpadInventoryModule && activeView === "printable" && (
@@ -2373,6 +2651,39 @@ function App() {
           )}
         </main>
       </div>
+      {showApiDiagnostics && (
+        <div className="history-modal-backdrop" onClick={() => setShowApiDiagnostics(false)}>
+          <div className="history-modal api-diagnostics-modal" onClick={(event) => event.stopPropagation()}>
+            <div className="history-modal-header">
+              <div>
+                <h3>API Diagnostics</h3>
+                <p className="helper-text">
+                  {apiHealth?.message || apiHealth?.error || "Inspect the current API and Firebase status."}
+                </p>
+              </div>
+              <button type="button" className="icon-button" onClick={() => setShowApiDiagnostics(false)} aria-label="Close diagnostics">
+                <span aria-hidden="true">×</span>
+              </button>
+            </div>
+            <div className="history-modal-body">
+              <pre className="api-diagnostics-pre">
+{JSON.stringify(
+  {
+    apiHealth,
+    apiDebug,
+    firebaseConfigured: isFirebaseConfigured,
+    adminUidConfigured: isAdminUidConfigured,
+    localMode: useLocalMode,
+    baseUrl: import.meta.env.VITE_API_BASE_URL || `${window.location.origin}/api`
+  },
+  null,
+  2
+)}
+              </pre>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

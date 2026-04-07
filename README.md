@@ -106,14 +106,20 @@ A TypeScript + React (Vite) web app for IT accountability operations, inventory 
 	VITE_FIREBASE_MESSAGING_SENDER_ID=...
 	VITE_FIREBASE_APP_ID=...
 	VITE_FIREBASE_ADMIN_UID=...
+	VITE_API_BASE_URL=https://your-vercel-project.vercel.app/api
 
-3. Ensure Firebase Firestore is enabled in your Firebase project.
+3. If you deploy the API on Vercel, set these server variables in the Vercel project.
 
-4. Run development server.
+	FIREBASE_SERVICE_ACCOUNT_JSON={...}
+	FIREBASE_ADMIN_UID=...
+
+4. Ensure Firebase Firestore is enabled in your Firebase project.
+
+5. Run development server.
 
 	npm run dev
 
-5. Build production bundle.
+6. Build production bundle.
 
 	npm run build
 
@@ -122,3 +128,5 @@ A TypeScript + React (Vite) web app for IT accountability operations, inventory 
 - Frontend app source is in src/.
 - Firebase client setup is in src/shared/firebase/firebase.ts.
 - Cloud Functions source is in functions/index.js.
+- Vercel API source is in api/.
+- Vercel deployment checklist is in VERCEL_DEPLOYMENT.md.

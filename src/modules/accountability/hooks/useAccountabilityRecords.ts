@@ -9,6 +9,14 @@ import {
   setDoc
 } from "firebase/firestore";
 import { db, isFirebaseConfigured } from "../../../shared/firebase/firebase";
+import { useFirestoreAdminAccess } from "../../../shared/hooks/useFirestoreAdminAccess";
+import {
+  createApiCollectionRecord,
+  deleteApiCollectionRecord,
+  getApiCollectionRecords,
+  isApiConfigured,
+  updateApiCollectionRecord
+} from "../../../shared/services/apiService";
 import { mockRecords } from "../data/mockData";
 import { AccountabilityRecord } from "../types/accountability";
 
@@ -95,6 +103,8 @@ export const useAccountabilityRecords = () => {
   const [error, setError] = useState<string>("");
 
   const useLocalMode = useMemo(() => !isFirebaseConfigured, []);
+  const canQueryFirestore = useFirestoreAdminAccess();
+  const useApiMode = isApiConfigured;
 
   const loadRecords = useCallback(async () => {
     setLoading(true);
@@ -103,6 +113,34 @@ export const useAccountabilityRecords = () => {
     if (useLocalMode) {
       const local = readLocal();
       setRecords(local);
+      setLoading(false);
+      return;
+    }
+
+    if (useApiMode) {
+      if (!canQueryFirestore) {
+        setLoading(false);
+        return;
+      }
+
+      try {
+        const response = await getApiCollectionRecords<AccountabilityRecord>(COLLECTION_NAME, {
+          orderBy: "updatedAt",
+          direction: "desc",
+          limit: 100
+        });
+        setRecords(response.records.map((item) => ({ ...item })));
+      } catch {
+        setError("Access denied or unable to load records from API.");
+        setRecords([]);
+      } finally {
+        setLoading(false);
+      }
+
+      return;
+    }
+
+    if (!canQueryFirestore) {
       setLoading(false);
       return;
     }
@@ -121,7 +159,7 @@ export const useAccountabilityRecords = () => {
     } finally {
       setLoading(false);
     }
-  }, [useLocalMode]);
+  }, [canQueryFirestore, useApiMode, useLocalMode]);
 
   useEffect(() => {
     void loadRecords();
@@ -194,6 +232,19 @@ export const useAccountabilityRecords = () => {
       setRecords(next);
       scheduleWriteLocal(next);
       return localRecord;
+    }
+
+    if (useApiMode) {
+      const createdId = crypto.randomUUID();
+      const createdRecord = { ...payload, id: createdId };
+      setRecords((prev) => [createdRecord, ...prev]);
+
+      await createApiCollectionRecord(COLLECTION_NAME, sanitizeForFirestore(payload)).catch(() => {
+        setError("Unable to save record to API. Please retry.");
+        setRecords((prev) => prev.filter((item) => item.id !== createdId));
+      });
+
+      return createdRecord;
     }
 
     const createdId = crypto.randomUUID();
@@ -318,6 +369,22 @@ export const useAccountabilityRecords = () => {
       return;
     }
 
+    if (useApiMode) {
+      const previousRecord = records.find((item) => item.id === id) ?? null;
+      setRecords((prev) => prev.map((item) => (item.id === id ? { ...item, ...payload, id } : item)));
+
+      await updateApiCollectionRecord(COLLECTION_NAME, id, sanitizeForFirestore(payload)).catch(() => {
+        setError("Unable to update record in API. Local changes were reverted.");
+        if (!previousRecord) {
+          return;
+        }
+
+        setRecords((prev) => prev.map((item) => (item.id === id ? previousRecord : item)));
+      });
+
+      return;
+    }
+
     const previousRecord = records.find((item) => item.id === id) ?? null;
     setRecords((prev) => prev.map((item) => (item.id === id ? { ...item, ...payload, id } : item)));
     const firestorePayload = sanitizeForFirestore(payload);
@@ -337,6 +404,22 @@ export const useAccountabilityRecords = () => {
       const next = records.filter((item) => item.id !== id);
       setRecords(next);
       scheduleWriteLocal(next);
+      return;
+    }
+
+    if (useApiMode) {
+      const previousRecord = records.find((item) => item.id === id) ?? null;
+      setRecords((prev) => prev.filter((item) => item.id !== id));
+
+      await deleteApiCollectionRecord(COLLECTION_NAME, id).catch(() => {
+        setError("Unable to delete record from API. Record was restored.");
+        if (!previousRecord) {
+          return;
+        }
+
+        setRecords((prev) => [previousRecord, ...prev]);
+      });
+
       return;
     }
 

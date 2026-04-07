@@ -18,8 +18,7 @@ export const SelectionPage = ({ onSelect }: SelectionPageProps) => {
     <section className="selection-screen" aria-label="Module Selection Page">
       <div className="selection-content">
         <p className="selection-kicker">MDC IT</p>
-        <h1>Select a Module</h1>
-        <p className="selection-subtitle">Choose what you want to open.</p>
+        <h1>Choose What You Want to Open</h1>
 
         <div className="selection-grid">
           {MODULES.map((item) => (

@@ -7,6 +7,13 @@ import {
   setDoc
 } from "firebase/firestore";
 import { db, isFirebaseConfigured } from "../../../shared/firebase/firebase";
+import { useFirestoreAdminAccess } from "../../../shared/hooks/useFirestoreAdminAccess";
+import {
+  deleteApiCollectionRecord,
+  getApiCollectionRecords,
+  isApiConfigured,
+  updateApiCollectionRecord
+} from "../../../shared/services/apiService";
 import { AccountabilityRecord } from "../types/accountability";
 
 const stampNow = () => new Date().toISOString();
@@ -28,6 +35,8 @@ export const useAccountabilityCollectionRecords = (
   const [error, setError] = useState("");
 
   const useLocalMode = useMemo(() => !isFirebaseConfigured, []);
+  const canQueryFirestore = useFirestoreAdminAccess();
+  const useApiMode = isApiConfigured;
 
   const readLocal = useCallback((): AccountabilityRecord[] => {
     const raw = localStorage.getItem(localStorageKey);
@@ -56,6 +65,35 @@ export const useAccountabilityCollectionRecords = (
       return;
     }
 
+    if (useApiMode) {
+      if (!canQueryFirestore) {
+        setLoading(false);
+        return;
+      }
+
+      try {
+        const response = await getApiCollectionRecords<AccountabilityRecord>(collectionName, {
+          orderBy: "updatedAt",
+          direction: "desc",
+          limit: 100
+        });
+
+        setRecords(sortByUpdatedAt(response.records));
+      } catch {
+        setError(loadErrorMessage);
+        setRecords([]);
+      } finally {
+        setLoading(false);
+      }
+
+      return;
+    }
+
+    if (!canQueryFirestore) {
+      setLoading(false);
+      return;
+    }
+
     try {
       const snapshot = await getDocs(collection(db, collectionName));
       const loaded = sortByUpdatedAt(
@@ -71,7 +109,7 @@ export const useAccountabilityCollectionRecords = (
     } finally {
       setLoading(false);
     }
-  }, [collectionName, loadErrorMessage, readLocal, useLocalMode]);
+  }, [canQueryFirestore, collectionName, loadErrorMessage, readLocal, useApiMode, useLocalMode]);
 
   useEffect(() => {
     void loadRecords();
@@ -96,6 +134,20 @@ export const useAccountabilityCollectionRecords = (
         return;
       }
 
+      if (useApiMode) {
+        setRecords((prev) => {
+          const withoutCurrent = prev.filter((item) => item.id !== id);
+          return sortByUpdatedAt([{ ...payload, id }, ...withoutCurrent]);
+        });
+
+        await updateApiCollectionRecord(collectionName, id, payload).catch(() => {
+          setError(loadErrorMessage);
+          void loadRecords();
+        });
+
+        return;
+      }
+
       setRecords((prev) => {
         const withoutCurrent = prev.filter((item) => item.id !== id);
         return sortByUpdatedAt([{ ...payload, id }, ...withoutCurrent]);
@@ -115,6 +167,17 @@ export const useAccountabilityCollectionRecords = (
         const next = readLocal().filter((item) => item.id !== id);
         setRecords(next);
         writeLocal(next);
+        return;
+      }
+
+      if (useApiMode) {
+        setRecords((prev) => prev.filter((item) => item.id !== id));
+
+        await deleteApiCollectionRecord(collectionName, id).catch(() => {
+          setError(loadErrorMessage);
+          void loadRecords();
+        });
+
         return;
       }
 

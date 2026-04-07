@@ -6,9 +6,22 @@
 import emailjs from 'emailjs-com';
 
 // Initialize EmailJS (set your service ID and public key)
-const EMAIL_SERVICE_ID = process.env.REACT_APP_EMAIL_SERVICE_ID || 'service_YOUR_ID';
-const EMAIL_TEMPLATE_ID = process.env.REACT_APP_EMAIL_TEMPLATE_ID || 'template_YOUR_ID';
-const EMAIL_PUBLIC_KEY = process.env.REACT_APP_EMAIL_PUBLIC_KEY || 'YOUR_PUBLIC_KEY';
+const env = (import.meta as ImportMeta & {
+  env?: Record<string, string | undefined>;
+}).env ?? {};
+
+const EMAIL_SERVICE_ID =
+  env.VITE_EMAIL_SERVICE_ID ||
+  env.REACT_APP_EMAIL_SERVICE_ID ||
+  'service_YOUR_ID';
+const EMAIL_TEMPLATE_ID =
+  env.VITE_EMAIL_TEMPLATE_ID ||
+  env.REACT_APP_EMAIL_TEMPLATE_ID ||
+  'template_YOUR_ID';
+const EMAIL_PUBLIC_KEY =
+  env.VITE_EMAIL_PUBLIC_KEY ||
+  env.REACT_APP_EMAIL_PUBLIC_KEY ||
+  'YOUR_PUBLIC_KEY';
 
 // Initialize emailjs once
 try {
@@ -49,12 +62,19 @@ export async function sendLicenseExpirationAlert(
   email: string,
   userName: string,
   softwareName: string,
-  expiryDate: string
+  expiryDate: string,
+  contractOrPoNumber: string,
+  renewalStatus: string
 ): Promise<boolean> {
   return sendEmail({
     to_email: email,
     subject: `License Expiration Alert: ${softwareName}`,
-    message: `The license for ${softwareName} is expiring on ${expiryDate}. Please renew it.`,
+    message:
+      `License nearing expiration.\n` +
+      `Software: ${softwareName}\n` +
+      `Contract/PO Number: ${contractOrPoNumber || "N/A"}\n` +
+      `Expiration Date: ${expiryDate}\n` +
+      `Renewal Status: ${renewalStatus || "N/A"}`,
     user_name: userName,
   });
 }
