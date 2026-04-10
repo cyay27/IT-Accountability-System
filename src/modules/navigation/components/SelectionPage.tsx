@@ -16,22 +16,26 @@ const MODULES = [
 export const SelectionPage = ({ onSelect }: SelectionPageProps) => {
   return (
     <section className="selection-screen" aria-label="Module Selection Page">
-      <div className="selection-content">
-        <p className="selection-kicker">MDC IT</p>
-        <h1>Choose What You Want to Open</h1>
+      <div className="selection-shell">
+        <aside className="selection-sidebar" aria-label="Module chooser sidebar">
+          <p className="selection-kicker">MDC IT</p>
+          <h1>IT Assets Management Portal</h1>
 
-        <div className="selection-grid">
-          {MODULES.map((item) => (
-            <button
-              key={item.key}
-              type="button"
-              className={`selection-btn selection-btn--${item.tone}`}
-              onClick={() => onSelect(item.key)}
-            >
-              {item.label}
-            </button>
-          ))}
-        </div>
+          <div className="selection-grid">
+            {MODULES.map((item) => (
+              <button
+                key={item.key}
+                type="button"
+                className={`selection-btn selection-btn--${item.tone}`}
+                onClick={() => onSelect(item.key)}
+              >
+                {item.label}
+              </button>
+            ))}
+          </div>
+        </aside>
+
+        <div className="selection-visual" role="presentation" aria-hidden="true" />
       </div>
     </section>
   );
