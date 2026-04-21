@@ -4,8 +4,7 @@ import {
   LICENSE_REQUIRED_FIELDS,
   LicenseDocumentAttachment,
   LicenseMaintenanceRecord,
-  PRODUCT_TYPE_OPTIONS,
-  RENEWAL_STATUS_OPTIONS
+  PRODUCT_TYPE_OPTIONS
 } from "../types/licenseMaintenance";
 
 interface LicenseMaintenanceFormProps {
@@ -27,8 +26,7 @@ const ACCEPTED_LICENSE_EXTENSIONS = [".pdf", ".doc", ".docx", ".jpg", ".jpeg", "
 const LEGACY_OPTIONAL_REQUIRED_FIELDS: Array<keyof LicenseMaintenanceRecord> = [
   "contractOrPoNumber",
   "purchaseMonthYear",
-  "expirationDate",
-  "renewalStatus"
+  "expirationDate"
 ];
 
 const labelByField: Record<keyof LicenseMaintenanceRecord, string> = {
@@ -48,6 +46,49 @@ const labelByField: Record<keyof LicenseMaintenanceRecord, string> = {
   contractAttachment: "Contract File",
   createdAt: "Created At",
   updatedAt: "Updated At"
+};
+
+const buildProofOfPurchaseName = (
+  poAttachment: LicenseDocumentAttachment | null | undefined,
+  contractAttachment: LicenseDocumentAttachment | null | undefined
+) => {
+  const parts: string[] = [];
+  if (poAttachment?.name) {
+    parts.push(`PO: ${poAttachment.name}`);
+  }
+  if (contractAttachment?.name) {
+    parts.push(`Contract: ${contractAttachment.name}`);
+  }
+  return parts.join(" | ");
+};
+
+const getDerivedRenewalStatus = (
+  expirationDate: string
+): LicenseMaintenanceRecord["renewalStatus"] => {
+  if (!expirationDate.trim()) {
+    return "";
+  }
+
+  const parsedExpiration = new Date(expirationDate);
+  if (Number.isNaN(parsedExpiration.getTime())) {
+    return "";
+  }
+
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  parsedExpiration.setHours(0, 0, 0, 0);
+
+  if (parsedExpiration < today) {
+    return "Expired";
+  }
+
+  const msPerDay = 24 * 60 * 60 * 1000;
+  const daysUntilExpiration = Math.ceil((parsedExpiration.getTime() - today.getTime()) / msPerDay);
+  if (daysUntilExpiration <= 30) {
+    return "For Renewal";
+  }
+
+  return "Active";
 };
 
 export const LicenseMaintenanceForm = ({
@@ -139,14 +180,17 @@ export const LicenseMaintenanceForm = ({
         uploadedAt: new Date().toISOString()
       };
 
-      setForm((prev) => ({
-        ...prev,
-        [targetField]: nextAttachment,
-        proofOfPurchaseName:
-          targetField === "poAttachment"
-            ? file.name
-            : prev.proofOfPurchaseName || prev.poAttachment?.name || ""
-      }));
+      setForm((prev) => {
+        const nextPoAttachment = targetField === "poAttachment" ? nextAttachment : prev.poAttachment;
+        const nextContractAttachment =
+          targetField === "contractAttachment" ? nextAttachment : prev.contractAttachment;
+
+        return {
+          ...prev,
+          [targetField]: nextAttachment,
+          proofOfPurchaseName: buildProofOfPurchaseName(nextPoAttachment, nextContractAttachment)
+        };
+      });
     } catch {
       setAttachmentError(`${file.name}: failed to process file.`);
     }
@@ -154,14 +198,17 @@ export const LicenseMaintenanceForm = ({
 
   const handleDocumentRemove = (targetField: "poAttachment" | "contractAttachment") => {
     setAttachmentError("");
-    setForm((prev) => ({
-      ...prev,
-      [targetField]: null,
-      proofOfPurchaseName:
-        targetField === "poAttachment"
-          ? ""
-          : prev.proofOfPurchaseName
-    }));
+    setForm((prev) => {
+      const nextPoAttachment = targetField === "poAttachment" ? null : prev.poAttachment;
+      const nextContractAttachment =
+        targetField === "contractAttachment" ? null : prev.contractAttachment;
+
+      return {
+        ...prev,
+        [targetField]: null,
+        proofOfPurchaseName: buildProofOfPurchaseName(nextPoAttachment, nextContractAttachment)
+      };
+    });
   };
 
   const validationErrors = useMemo(() => {
@@ -180,6 +227,18 @@ export const LicenseMaintenanceForm = ({
 
     if (isProductKeyRequired && !form.productKey.trim()) {
       missing.push("Product Key is required when Product Type is Product Key.");
+    }
+
+    if (!form.poAttachment) {
+      missing.push("PO File is required.");
+    }
+
+    if (!form.contractAttachment) {
+      missing.push("Contract File is required.");
+    }
+
+    if (!form.proofOfPurchaseName.trim()) {
+      missing.push("Proof of Purchase is required.");
     }
 
     const parsedDate = new Date(form.date);
@@ -229,10 +288,10 @@ export const LicenseMaintenanceForm = ({
         contractOrPoNumber: form.contractOrPoNumber.trim(),
         purchaseMonthYear: form.purchaseMonthYear,
         expirationDate: form.expirationDate,
-        renewalStatus: form.renewalStatus,
+        renewalStatus: getDerivedRenewalStatus(form.expirationDate),
         productType: form.productType,
         productKey: isProductKeyRequired ? form.productKey.trim() : "",
-        proofOfPurchaseName: form.poAttachment?.name || form.proofOfPurchaseName.trim(),
+        proofOfPurchaseName: buildProofOfPurchaseName(form.poAttachment, form.contractAttachment),
         poAttachment: form.poAttachment ?? null,
         contractAttachment: form.contractAttachment ?? null
       });
@@ -337,26 +396,6 @@ export const LicenseMaintenanceForm = ({
         </label>
 
         <label className="field">
-          <span>Renewal Status</span>
-          <select
-            value={form.renewalStatus}
-            onChange={(event) =>
-              setForm((prev) => ({
-                ...prev,
-                renewalStatus: event.target.value as LicenseMaintenanceRecord["renewalStatus"]
-              }))
-            }
-          >
-            <option value="">Select renewal status</option>
-            {RENEWAL_STATUS_OPTIONS.map((option) => (
-              <option key={option} value={option}>
-                {option}
-              </option>
-            ))}
-          </select>
-        </label>
-
-        <label className="field">
           <span>Product Type</span>
           <select
             value={form.productType}
@@ -393,9 +432,9 @@ export const LicenseMaintenanceForm = ({
         </label>
 
         <section className="field field-span attachments-panel" aria-label="License documents section">
-          <span>Proof of Purchase Documents (Optional)</span>
+          <span>Proof of Purchase Documents *</span>
           <p className="helper-text attachments-helper">
-            Upload PO and Contract files. Allowed: PDF, DOC, DOCX, JPG, PNG. Max 5 MB per file.
+            Upload both PO and Contract files. Allowed: PDF, DOC, DOCX, JPG, PNG. Max 5 MB per file.
           </p>
 
           <div className="license-doc-grid">

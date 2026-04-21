@@ -319,7 +319,7 @@ export const DisposalForm = ({ editingRecord, onSubmit, onCancelEdit }: Disposal
       >
         {isEditMode ? "Done" : "Edit"}
       </button>
-      <p className="helper-text">Disposal: <strong>{preview}</strong></p>
+      <p className="helper-text">Disposal Preview: <strong>{preview}</strong></p>
 
       {errors.length > 0 && (
         <div className="error-box">

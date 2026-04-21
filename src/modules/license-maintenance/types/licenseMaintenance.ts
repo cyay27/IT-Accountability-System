@@ -40,7 +40,6 @@ export const LICENSE_REQUIRED_FIELDS: Array<keyof LicenseMaintenanceRecord> = [
   "contractOrPoNumber",
   "purchaseMonthYear",
   "expirationDate",
-  "renewalStatus",
   "productType"
 ];
 

@@ -31,14 +31,8 @@ import { DisposalRecords } from "./modules/disposal/components/DisposalRecords";
 import { useDisposalRecords } from "./modules/disposal/hooks/useDisposalRecords";
 import { DisposalRecord } from "./modules/disposal/types/disposal";
 import { IPadInventory } from "./modules/ipad-inventory/components/IPadInventory";
-import { IPadInventoryChart } from "./modules/ipad-inventory/components/IPadInventoryChart";
 import { IPadInventoryPrintable } from "./modules/ipad-inventory/components/IPadInventoryPrintable";
 import { useIpadInventoryRecords } from "./modules/ipad-inventory/hooks/useIpadInventoryRecords";
-import { LicenseMaintenanceForm } from "./modules/license-maintenance/components/LicenseMaintenanceForm";
-import { LicenseMaintenanceRecords } from "./modules/license-maintenance/components/LicenseMaintenanceRecords";
-import { LicenseMaintenanceView } from "./modules/license-maintenance/components/LicenseMaintenanceView";
-import { useLicenseMaintenanceRecords } from "./modules/license-maintenance/hooks/useLicenseMaintenanceRecords";
-import { LicenseMaintenanceRecord } from "./modules/license-maintenance/types/licenseMaintenance";
 import { LandingPage } from "./modules/navigation/components/LandingPage";
 import { SelectionPage } from "./modules/navigation/components/SelectionPage";
 import { ReturnedAssetsChart } from "./modules/returned-assets/components/ReturnedAssetsChart";
@@ -52,18 +46,12 @@ import { SoftwareInventoryPrintable } from "./modules/software-inventory/compone
 import { SoftwareInventoryRecords } from "./modules/software-inventory/components/SoftwareInventoryRecords";
 import { useSoftwareInventoryRecords } from "./modules/software-inventory/hooks/useSoftwareInventoryRecords";
 import { SoftwareInventoryRecord } from "./modules/software-inventory/types/softwareInventory";
+import { LicenseMaintenanceForm } from "./modules/license-maintenance/components/LicenseMaintenanceForm";
+import { LicenseMaintenanceRecords } from "./modules/license-maintenance/components/LicenseMaintenanceRecords";
+import { LicenseMaintenanceView } from "./modules/license-maintenance/components/LicenseMaintenanceView";
+import { useLicenseMaintenanceRecords } from "./modules/license-maintenance/hooks/useLicenseMaintenanceRecords";
+import { LicenseMaintenanceRecord } from "./modules/license-maintenance/types/licenseMaintenance";
 import { HeaderBar } from "./shared/components/HeaderBar";
-import {
-  getApiDebug,
-  getApiHealth,
-  ApiDebugResponse,
-  ApiHealthResponse,
-  isApiConfigured
-} from "./shared/services/apiService";
-import {
-  isEmailServiceConfigured,
-  sendLicenseExpirationAlert
-} from "./shared/services/emailService";
 import {
   adminUid,
   auth,
@@ -87,68 +75,6 @@ const TRANSFERRED_KEYWORDS = ["transfer", "transferred"];
 const TRANSFER_DECISION_GOES_WITH_USER = "device goes with user";
 const TRANSFER_DECISION_STAYS_REASSIGNED = "device stays and is reassigned";
 
-const buildHolderName = (record: AccountabilityRecord) =>
-  [record.firstName, record.middleName, record.lastName]
-    .map((value) => String(value ?? "").trim())
-    .filter(Boolean)
-    .join(" ");
-
-const isTransferDecisionReassign = (value?: string) => {
-  const normalized = String(value ?? "").trim().toLowerCase();
-  return normalized === TRANSFER_DECISION_STAYS_REASSIGNED || normalized.includes("reassign");
-};
-
-const isTransferDecisionKeepDevice = (value?: string) => {
-  const normalized = String(value ?? "").trim().toLowerCase();
-  return normalized === TRANSFER_DECISION_GOES_WITH_USER;
-};
-
-const isClosedReassignedWorkflow = (value?: string) =>
-  String(value ?? "").trim().toLowerCase() === "closed - reassigned";
-
-const appendStatusDecisionHistory = (record: AccountabilityRecord): AccountabilityRecord => {
-  const now = new Date().toISOString();
-  const nextHistory = [...(record.history ?? [])];
-
-  if (isResignedEmploymentStatus(record.employmentStatus)) {
-    nextHistory.push({
-      id: crypto.randomUUID(),
-      action: "returned",
-      summary: "Asset returned due to employee resignation.",
-      timestamp: now
-    });
-  }
-
-  if (isTransferredEmploymentStatus(record.employmentStatus)) {
-    if (isTransferDecisionKeepDevice(record.transferDecision)) {
-      nextHistory.push({
-        id: crypto.randomUUID(),
-        action: "updated",
-        summary: "Device retained by user due to project transfer.",
-        timestamp: now
-      });
-    }
-
-    if (isTransferDecisionReassign(record.transferDecision)) {
-      nextHistory.push({
-        id: crypto.randomUUID(),
-        action: "returned",
-        summary: "Asset marked returned for reassignment due to project transfer.",
-        timestamp: now
-      });
-    }
-  }
-
-  if (nextHistory.length === (record.history ?? []).length) {
-    return record;
-  }
-
-  return {
-    ...record,
-    history: nextHistory
-  };
-};
-
 const isResignedEmploymentStatus = (value?: string) => {
   const normalized = String(value ?? "").trim().toLowerCase();
   return RESIGNED_KEYWORDS.some((keyword) => normalized.includes(keyword));
@@ -162,6 +88,7 @@ const isTransferredEmploymentStatus = (value?: string) => {
 const applyEmployeeStatusRules = (record: AccountabilityRecord): AccountabilityRecord => {
   const normalizedDeviceStatus = String(record.deviceStatus ?? "").trim().toLowerCase();
   const normalizedReturnedDate = String(record.returnedDate ?? "").trim();
+  const normalizedTransferDecision = String(record.transferDecision ?? "").trim().toLowerCase();
   const nextDeviceStatus = normalizedDeviceStatus === "defective" ? "Defective" : "Active";
   const today = new Date().toISOString().split("T")[0];
 
@@ -174,7 +101,10 @@ const applyEmployeeStatusRules = (record: AccountabilityRecord): AccountabilityR
   }
 
   if (isTransferredEmploymentStatus(record.employmentStatus)) {
-    if (isTransferDecisionReassign(record.transferDecision)) {
+    if (
+      normalizedTransferDecision === TRANSFER_DECISION_STAYS_REASSIGNED ||
+      normalizedTransferDecision.includes("reassign")
+    ) {
       return {
         ...record,
         deviceStatus: nextDeviceStatus,
@@ -182,10 +112,10 @@ const applyEmployeeStatusRules = (record: AccountabilityRecord): AccountabilityR
       };
     }
 
-    if (isTransferDecisionKeepDevice(record.transferDecision)) {
+    if (normalizedTransferDecision === TRANSFER_DECISION_GOES_WITH_USER) {
       return {
         ...record,
-        deviceStatus: "Deployed",
+        deviceStatus: nextDeviceStatus,
         returnedDate: ""
       };
     }
@@ -195,8 +125,6 @@ const applyEmployeeStatusRules = (record: AccountabilityRecord): AccountabilityR
 };
 
 const DELIVERY_RECEIPT_STORAGE_KEY = "ias:delivery-receipt-records";
-const THEME_STORAGE_KEY = "ias:theme";
-const LICENSE_EXPIRY_NOTIFICATION_STORAGE_KEY = "ias:license-expiry-notification-log";
 
 const readDeliveryReceiptRecords = (): DeliveryReceiptRecord[] => {
   try {
@@ -217,6 +145,7 @@ type ActiveView =
   | "inventory"
   | "chart"
   | "records"
+  | "status"
   | "printable"
   | "borrowing-form"
   | "borrowing-printable"
@@ -232,36 +161,13 @@ type ModuleKey =
   | "disposal"
   | "returned-assets";
 
-type NavigationSnapshot = {
-  module: ModuleKey;
-  view: ActiveView;
-};
-
-type LicenseRenewalAlert = {
-  key: string;
-  softwareName: string;
-  contractOrPoNumber: string;
-  expirationDate: string;
-  renewalStatus: string;
-};
-
 function App() {
-  const [darkMode, setDarkMode] = useState(() => {
-    try {
-      return localStorage.getItem(THEME_STORAGE_KEY) === "dark";
-    } catch {
-      return false;
-    }
-  });
   const [authReady, setAuthReady] = useState(false);
   const [authUser, setAuthUser] = useState<User | null>(null);
   const [authError, setAuthError] = useState("");
   const [loginEmail, setLoginEmail] = useState("");
   const [loginPassword, setLoginPassword] = useState("");
   const [isLoggingIn, setIsLoggingIn] = useState(false);
-  const [apiHealth, setApiHealth] = useState<ApiHealthResponse | null>(null);
-  const [apiDebug, setApiDebug] = useState<ApiDebugResponse | null>(null);
-  const [showApiDiagnostics, setShowApiDiagnostics] = useState(false);
   const [showLanding, setShowLanding] = useState(true);
   const [selectedModule, setSelectedModule] = useState<ModuleKey | null>(null);
   const {
@@ -317,29 +223,31 @@ function App() {
     updateRecord: updateSoftwareRecord,
     removeRecord: removeSoftwareRecord
   } = useSoftwareInventoryRecords();
-  const [editingSoftwareRecord, setEditingSoftwareRecord] =
-    useState<SoftwareInventoryRecord | null>(null);
-  const [selectedSoftwareRecord, setSelectedSoftwareRecord] =
-    useState<SoftwareInventoryRecord | null>(null);
   const {
     records: licenseMaintenanceRecords,
     loading: licenseMaintenanceLoading,
     error: licenseMaintenanceError,
     createRecord: createLicenseMaintenanceRecord,
     updateRecord: updateLicenseMaintenanceRecord,
-    removeRecord: removeLicenseMaintenanceRecord
+    removeRecord: removeLicenseMaintenanceRecord,
+    reload: reloadLicenseMaintenanceRecords
   } = useLicenseMaintenanceRecords();
+  const [editingSoftwareRecord, setEditingSoftwareRecord] =
+    useState<SoftwareInventoryRecord | null>(null);
+  const [selectedSoftwareRecord, setSelectedSoftwareRecord] =
+    useState<SoftwareInventoryRecord | null>(null);
   const [editingLicenseMaintenanceRecord, setEditingLicenseMaintenanceRecord] =
     useState<LicenseMaintenanceRecord | null>(null);
   const [selectedLicenseMaintenanceRecord, setSelectedLicenseMaintenanceRecord] =
     useState<LicenseMaintenanceRecord | null>(null);
-  const [licenseRenewalAlerts, setLicenseRenewalAlerts] = useState<LicenseRenewalAlert[]>([]);
   const [pendingSoftwarePrint, setPendingSoftwarePrint] = useState(false);
   const [pendingIpadPrint, setPendingIpadPrint] = useState(false);
   const [pendingReturnedAssetsPrint, setPendingReturnedAssetsPrint] = useState(false);
   const [pendingDisposalPrint, setPendingDisposalPrint] = useState(false);
+  const [sectionCollectionsBackfilled, setSectionCollectionsBackfilled] = useState(false);
   const {
     records: disposalRecords,
+    loading: disposalLoading,
     error: disposalError,
     createRecord: createDisposalRecord,
     updateRecord: updateDisposalRecord,
@@ -356,105 +264,6 @@ function App() {
   );
 
   const printRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    document.body.classList.toggle("dark-mode", darkMode);
-
-    try {
-      localStorage.setItem(THEME_STORAGE_KEY, darkMode ? "dark" : "light");
-    } catch {
-      // Ignore storage failures (private mode/storage restrictions)
-    }
-  }, [darkMode]);
-
-  useEffect(() => {
-    const today = new Date();
-    const dayStart = new Date(today.getFullYear(), today.getMonth(), today.getDate());
-    const msPerDay = 24 * 60 * 60 * 1000;
-
-    const upcoming = licenseMaintenanceRecords
-      .map((record) => {
-        const expirationDateRaw = String(record.expirationDate ?? "").trim();
-        if (!expirationDateRaw) {
-          return null;
-        }
-
-        const expirationDate = new Date(`${expirationDateRaw}T00:00:00`);
-        if (Number.isNaN(expirationDate.getTime())) {
-          return null;
-        }
-
-        const expiryDay = new Date(
-          expirationDate.getFullYear(),
-          expirationDate.getMonth(),
-          expirationDate.getDate()
-        );
-        const daysUntilExpiry = Math.floor((expiryDay.getTime() - dayStart.getTime()) / msPerDay);
-        if (daysUntilExpiry < 0 || daysUntilExpiry > 92) {
-          return null;
-        }
-
-        return {
-          key: record.id ?? `${record.softwareName}-${record.contractOrPoNumber}-${expirationDateRaw}`,
-          softwareName: String(record.softwareName ?? "").trim() || "(Unnamed Software)",
-          contractOrPoNumber: String(record.contractOrPoNumber ?? "").trim() || "N/A",
-          expirationDate: expirationDateRaw,
-          renewalStatus: String(record.renewalStatus ?? "").trim() || "N/A"
-        };
-      })
-      .filter(Boolean) as LicenseRenewalAlert[];
-
-    setLicenseRenewalAlerts(upcoming);
-
-    const notificationEmail = authUser?.email;
-    if (!upcoming.length || !notificationEmail || !isEmailServiceConfigured()) {
-      return;
-    }
-
-    const triggerEmailNotifications = async () => {
-      let notificationLog: Record<string, string> = {};
-
-      try {
-        const raw = localStorage.getItem(LICENSE_EXPIRY_NOTIFICATION_STORAGE_KEY);
-        if (raw) {
-          notificationLog = JSON.parse(raw) as Record<string, string>;
-        }
-      } catch {
-        notificationLog = {};
-      }
-
-      for (const alertItem of upcoming) {
-        const notificationKey = `${alertItem.key}|${alertItem.expirationDate}`;
-        if (notificationLog[notificationKey]) {
-          continue;
-        }
-
-        const sent = await sendLicenseExpirationAlert(
-          notificationEmail,
-          authUser?.displayName || notificationEmail,
-          alertItem.softwareName,
-          alertItem.expirationDate,
-          alertItem.contractOrPoNumber,
-          alertItem.renewalStatus
-        );
-
-        if (sent) {
-          notificationLog[notificationKey] = new Date().toISOString();
-        }
-      }
-
-      try {
-        localStorage.setItem(
-          LICENSE_EXPIRY_NOTIFICATION_STORAGE_KEY,
-          JSON.stringify(notificationLog)
-        );
-      } catch {
-        // Ignore storage errors and continue with in-app notifications.
-      }
-    };
-
-    void triggerEmailNotifications();
-  }, [licenseMaintenanceRecords, authUser]);
   const borrowingPrintRef = useRef<HTMLDivElement>(null);
   const deliveryReceiptPrintRef = useRef<HTMLDivElement>(null);
   const assetPrintRef = useRef<HTMLDivElement>(null);
@@ -462,64 +271,6 @@ function App() {
   const ipadPrintRef = useRef<HTMLDivElement>(null);
   const returnedAssetsPrintRef = useRef<HTMLDivElement>(null);
   const disposalPrintRef = useRef<HTMLDivElement>(null);
-  const lastReturnedAssetsSyncKeyRef = useRef<Record<string, string>>({});
-  const navigationHistoryRef = useRef<NavigationSnapshot[]>([]);
-  const lastNavigationRef = useRef<NavigationSnapshot | null>(null);
-
-  useEffect(() => {
-    if (showLanding || !selectedModule) {
-      return;
-    }
-
-    const current: NavigationSnapshot = {
-      module: selectedModule,
-      view: activeView
-    };
-
-    const previous = lastNavigationRef.current;
-    if (!previous) {
-      lastNavigationRef.current = current;
-      return;
-    }
-
-    if (previous.module === current.module && previous.view === current.view) {
-      return;
-    }
-
-    navigationHistoryRef.current.push(previous);
-    if (navigationHistoryRef.current.length > 120) {
-      navigationHistoryRef.current.shift();
-    }
-
-    lastNavigationRef.current = current;
-  }, [showLanding, selectedModule, activeView]);
-
-  const handleSidebarBack = () => {
-    let previous = navigationHistoryRef.current.pop();
-
-    while (
-      previous &&
-      previous.module === selectedModule &&
-      previous.view === activeView
-    ) {
-      previous = navigationHistoryRef.current.pop();
-    }
-
-    if (previous) {
-      setSelectedModule(previous.module);
-      setActiveView(previous.view);
-      lastNavigationRef.current = previous;
-      return;
-    }
-
-    setSelectedModule(null);
-  };
-
-  const handleGoToSelectionPage = () => {
-    navigationHistoryRef.current = [];
-    lastNavigationRef.current = null;
-    setSelectedModule(null);
-  };
 
   useEffect(() => {
     if (!isFirebaseConfigured || !isAdminUidConfigured) {
@@ -543,82 +294,6 @@ function App() {
 
     return () => unsubscribe();
   }, []);
-
-  useEffect(() => {
-    let cancelled = false;
-
-    const loadApiDiagnostics = async () => {
-      if (!isFirebaseConfigured) {
-        setApiHealth({
-          ok: false,
-          service: "it-accountability-api",
-          timestamp: new Date().toISOString(),
-          message: "Firebase is not configured. The app is using local storage mode."
-        });
-        setApiDebug(null);
-        return;
-      }
-
-      if (!isApiConfigured) {
-        setApiHealth({
-          ok: false,
-          service: "it-accountability-api",
-          timestamp: new Date().toISOString(),
-          message: "VITE_API_BASE_URL is not configured. API diagnostics are disabled."
-        });
-        setApiDebug(null);
-        return;
-      }
-
-      try {
-        const health = await getApiHealth();
-        if (cancelled) {
-          return;
-        }
-
-        setApiHealth(health);
-
-        if (authUser) {
-          try {
-            const debug = await getApiDebug();
-            if (!cancelled) {
-              setApiDebug(debug);
-            }
-          } catch (error) {
-            if (!cancelled) {
-              setApiDebug({
-                ok: false,
-                service: "it-accountability-api",
-                mode: "unavailable",
-                timestamp: new Date().toISOString(),
-                error: error instanceof Error ? error.message : "Unable to load API debug data."
-              });
-            }
-          }
-        } else if (!cancelled) {
-          setApiDebug(null);
-        }
-      } catch (error) {
-        if (!cancelled) {
-          const message = error instanceof Error ? error.message : "Unable to reach the API.";
-          setApiHealth({
-            ok: false,
-            service: "it-accountability-api",
-            timestamp: new Date().toISOString(),
-            error: message,
-            message
-          });
-          setApiDebug(null);
-        }
-      }
-    };
-
-    void loadApiDiagnostics();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [authUser]);
 
   const handleLogin = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -666,7 +341,11 @@ function App() {
   const handleDeliveryReceiptPrint = useReactToPrint({
     content: () => deliveryReceiptPrintRef.current,
     documentTitle: selectedDeliveryReceiptRecord
-      ? `IT-Delivery-Receipt-${selectedDeliveryReceiptRecord.invoiceNumber || selectedDeliveryReceiptRecord.id}`
+      ? `IT-Delivery-Receipt-${
+          selectedDeliveryReceiptRecord.item === "Others"
+            ? selectedDeliveryReceiptRecord.customItemName || selectedDeliveryReceiptRecord.id
+            : selectedDeliveryReceiptRecord.item || selectedDeliveryReceiptRecord.invoiceNumber || selectedDeliveryReceiptRecord.id
+        }`
       : "IT-Delivery-Receipt"
   });
 
@@ -699,28 +378,7 @@ function App() {
       : "IT-Disposal"
   });
 
-  const syncReturnedAssetsForAccountability = async (record: AccountabilityRecord) => {
-    const id = record.id;
-    if (!id) return;
-
-    const normalizedDeviceStatus = (record.deviceStatus ?? "").trim().toLowerCase();
-    const shouldStayInReturnedAssets =
-      Boolean(record.returnedDate?.trim()) &&
-      normalizedDeviceStatus !== "deployed" &&
-      !isClosedReassignedWorkflow(record.workflowStatus);
-
-    if (shouldStayInReturnedAssets) {
-      await upsertReturnedAssetsRecord({ ...record, id });
-      return;
-    }
-
-    await removeReturnedAssetsRecord(id);
-  };
-
-  const syncSectionRecordsForAccountability = async (
-    record: AccountabilityRecord,
-    options?: { skipReturnedAssetsSync?: boolean }
-  ) => {
+  const syncSectionRecordsForAccountability = async (record: AccountabilityRecord) => {
     const id = record.id;
     if (!id) return;
 
@@ -731,9 +389,13 @@ function App() {
         ? upsertIpadInventoryRecord({ ...record, id })
         : removeIpadInventoryRecord(id);
 
-    const returnedAssetsSyncTask = options?.skipReturnedAssetsSync
-      ? Promise.resolve()
-      : syncReturnedAssetsForAccountability(record);
+    const normalizedDeviceStatus = (record.deviceStatus ?? "").trim().toLowerCase();
+    const shouldStayInReturnedAssets =
+      Boolean(record.returnedDate?.trim()) && normalizedDeviceStatus !== "deployed";
+
+    const returnedAssetsSyncTask = shouldStayInReturnedAssets
+      ? upsertReturnedAssetsRecord({ ...record, id })
+      : removeReturnedAssetsRecord(id);
 
     const linkedDisposalRecord = disposalRecords.find(
       (item) => item.sourceAccountabilityRecordId === id
@@ -880,11 +542,26 @@ function App() {
   };
 
   useEffect(() => {
-    const syncReturnedAssetsToInventory = async () => {
-      if (showLanding || !selectedModule) {
-        return;
-      }
+    if (softwareLoading || disposalLoading) {
+      return;
+    }
 
+    if (sectionCollectionsBackfilled) {
+      return;
+    }
+
+    const backfill = async () => {
+      for (const record of records) {
+        await syncSectionRecordsForAccountability(record);
+      }
+      setSectionCollectionsBackfilled(true);
+    };
+
+    void backfill();
+  }, [records, softwareLoading, disposalLoading, sectionCollectionsBackfilled]);
+
+  useEffect(() => {
+    const syncReturnedAssetsToInventory = async () => {
       for (const record of returnedAssetsRecords) {
         if (!record.id) {
           continue;
@@ -892,9 +569,8 @@ function App() {
 
         const existingInventoryRecord = assetInventoryRecords.find((item) => item.id === record.id);
         const isMissingInInventory = !existingInventoryRecord;
-        const returnedUpdatedAt = new Date(record.updatedAt ?? 0).getTime();
-        const inventoryUpdatedAt = new Date(existingInventoryRecord?.updatedAt ?? 0).getTime();
-        const hasNewerReturnedRecord = returnedUpdatedAt > inventoryUpdatedAt;
+        const hasNewerReturnedRecord =
+          (record.updatedAt ?? "") !== (existingInventoryRecord?.updatedAt ?? "");
 
         if (isMissingInInventory || hasNewerReturnedRecord) {
           await upsertAssetInventoryRecord({ ...record, id: record.id });
@@ -903,45 +579,7 @@ function App() {
     };
 
     void syncReturnedAssetsToInventory();
-  }, [showLanding, selectedModule, returnedAssetsRecords, assetInventoryRecords, upsertAssetInventoryRecord]);
-
-  useEffect(() => {
-    const syncChangedAccountabilityRecordsToReturnedAssets = async () => {
-      if (showLanding || !selectedModule) {
-        return;
-      }
-
-      const nextSyncKeyMap: Record<string, string> = {};
-
-      for (const record of records) {
-        const id = record.id;
-        if (!id) {
-          continue;
-        }
-
-        const syncKey = [
-          record.returnedDate,
-          record.deviceStatus,
-          record.workflowStatus,
-          record.transferDecision,
-          record.employmentStatus,
-          record.updatedAt
-        ].join("|");
-
-        nextSyncKeyMap[id] = syncKey;
-
-        if (lastReturnedAssetsSyncKeyRef.current[id] === syncKey) {
-          continue;
-        }
-
-        await syncReturnedAssetsForAccountability(record);
-      }
-
-      lastReturnedAssetsSyncKeyRef.current = nextSyncKeyMap;
-    };
-
-    void syncChangedAccountabilityRecordsToReturnedAssets();
-  }, [showLanding, selectedModule, records]);
+  }, [returnedAssetsRecords, assetInventoryRecords, upsertAssetInventoryRecord]);
 
   const snapshotPreviousInventoryRecord = async (recordId: string, reason: string) => {
     const previous = records.find((item) => item.id === recordId);
@@ -950,13 +588,7 @@ function App() {
     }
 
     const snapshotAt = new Date();
-    const snapshotKey = snapshotAt
-      .toISOString()
-      .split("-").join("")
-      .split(":").join("")
-      .split(".").join("")
-      .split("T").join("")
-      .split("Z").join("");
+    const snapshotKey = snapshotAt.toISOString().replace(/[-:.TZ]/g, "");
     const snapshotId = `${recordId}-hist-${snapshotKey}`;
 
     await upsertAssetInventoryRecord({
@@ -971,9 +603,7 @@ function App() {
   };
 
   const handleSubmit = async (record: AccountabilityRecord) => {
-    const cleaned = appendStatusDecisionHistory(
-      applyEmployeeStatusRules(trimRecord(record))
-    );
+    const cleaned = applyEmployeeStatusRules(trimRecord(record));
     if (editingRecord?.id) {
       void snapshotPreviousInventoryRecord(
         editingRecord.id,
@@ -981,8 +611,7 @@ function App() {
       );
       const updated = { ...cleaned, id: editingRecord.id };
       await updateRecord(editingRecord.id, cleaned);
-      await syncReturnedAssetsForAccountability(updated);
-      void syncSectionRecordsForAccountability(updated, { skipReturnedAssetsSync: true });
+      void syncSectionRecordsForAccountability(updated);
       setEditingRecord(null);
       setSelectedRecord((prev) => {
         if (!prev || prev.id !== editingRecord.id) return prev;
@@ -993,8 +622,7 @@ function App() {
       return;
     }
     const created = await createRecord(cleaned);
-    await syncReturnedAssetsForAccountability(created);
-    void syncSectionRecordsForAccountability(created, { skipReturnedAssetsSync: true });
+    void syncSectionRecordsForAccountability(created);
     setPrefillRecord(null);
     setSelectedModule("it-accountability-form");
     setActiveView("records");
@@ -1004,8 +632,6 @@ function App() {
     if (!record.id) {
       return;
     }
-    const sourceAccountabilityRecord = records.find((item) => item.id === record.id) ?? null;
-    const sourceRecord = sourceAccountabilityRecord ?? record;
 
     void snapshotPreviousInventoryRecord(
       record.id,
@@ -1013,121 +639,15 @@ function App() {
     );
 
     const cleaned = trimRecord(record);
-    const now = new Date().toISOString();
-    const previousHolderName = buildHolderName(sourceRecord) || sourceRecord.empId || "previous holder";
-    const newHolderName = buildHolderName(cleaned) || cleaned.empId || "new holder";
-    const transferContext = isTransferredEmploymentStatus(sourceRecord.employmentStatus)
-      ? " due to project transfer"
-      : "";
-
-    const closeSummary = `Accountability record closed: device reassigned from ${previousHolderName} to ${newHolderName}${transferContext}.`;
-    const createSummary = `Device reassigned from ${previousHolderName} to ${newHolderName}${transferContext}.`;
-
-    const closedRecord: AccountabilityRecord = {
-      ...sourceRecord,
-      workflowStatus: "Closed - Reassigned",
-      history: [
-        ...(sourceRecord.history ?? []),
-        {
-          id: crypto.randomUUID(),
-          action: "updated",
-          summary: closeSummary,
-          timestamp: now
-        }
-      ]
-    };
-
-    const previousHolders = [...(sourceRecord.previousHolders ?? [])];
-    const sourceEmpIdKey = String(sourceRecord.empId ?? "").trim().toLowerCase();
-    const previousHolderNameKey = String(previousHolderName ?? "").trim().toLowerCase();
-    const hasPreviousHolder = previousHolders.some(
-      (entry) =>
-        String(entry.empId ?? "").trim().toLowerCase() === sourceEmpIdKey &&
-        String(entry.holderName ?? "").trim().toLowerCase() === previousHolderNameKey
-    );
-
-    if (!hasPreviousHolder) {
-      previousHolders.push({
-        id: crypto.randomUUID(),
-        holderName: previousHolderName,
-        empId: sourceRecord.empId || "-",
-        department: sourceRecord.department || "-",
-        project: sourceRecord.project || "-",
-        releasedAt: now
-      });
-    }
-
-    const reassignmentRecordInput: AccountabilityRecord = {
+    const reassignedRecord: AccountabilityRecord = {
       ...cleaned,
-      id: undefined,
-      no: "",
-      employmentStatus: "Deployed",
-      transferDecision: "",
+      id: record.id,
       deviceStatus: "Deployed",
-      returnedDate: "",
-      workflowStatus: "Pending Employee Signature",
-      signatureRouteTo: "",
-      attachments: [],
-      assigneeSignature: { name: "", signatureDataUrl: null, date: "" },
-      assigneeReturnedSignature: { name: "", signatureDataUrl: null, date: "" },
-      phrSignature: { name: "", signatureDataUrl: null, date: "" },
-      amldSignature: { name: "", signatureDataUrl: null, date: "" },
-      itSignature: { name: "", signatureDataUrl: null, date: "" },
-      catoSignature: { name: "", signatureDataUrl: null, date: "" },
-      history: [
-        {
-          id: crypto.randomUUID(),
-          action: "updated",
-          summary: createSummary,
-          timestamp: now
-        }
-      ],
-      previousHolders,
-      returnHistory: [...(sourceRecord.returnHistory ?? [])],
-      archivedAssignments: [...(sourceRecord.archivedAssignments ?? [])]
+      returnedDate: ""
     };
 
-    let archivedClosedRecord: AccountabilityRecord;
-    try {
-      if (sourceAccountabilityRecord?.id) {
-        archivedClosedRecord = { ...closedRecord, id: sourceAccountabilityRecord.id };
-        await updateRecord(sourceAccountabilityRecord.id, closedRecord);
-      } else {
-        const createdArchivedRecord = await createRecord({
-          ...closedRecord,
-          id: undefined
-        });
-        archivedClosedRecord = createdArchivedRecord;
-      }
-
-      await syncReturnedAssetsForAccountability(archivedClosedRecord);
-      void syncSectionRecordsForAccountability(archivedClosedRecord, { skipReturnedAssetsSync: true });
-    } catch (error) {
-      console.error("Unable to archive previous reassigned record", error);
-      const reason = error instanceof Error ? error.message : "Unknown error";
-      window.alert(`Unable to archive previous record. Reason: ${reason}`);
-      return;
-    }
-
-    let createdRecord: AccountabilityRecord;
-    try {
-      createdRecord = await createRecord(reassignmentRecordInput);
-    } catch (error) {
-      console.error("Unable to create reassigned accountability record", error);
-      const reason = error instanceof Error ? error.message : "Unknown error";
-      window.alert(`Unable to save reassignment right now. Reason: ${reason}`);
-      return;
-    }
-
-    try {
-      await syncReturnedAssetsForAccountability(createdRecord);
-      void syncSectionRecordsForAccountability(createdRecord, { skipReturnedAssetsSync: true });
-    } catch (error) {
-      console.error("Unable to finalize reassignment sync", error);
-    }
-
-    setPrefillRecord(null);
-    setEditingRecord(null);
+    await updateRecord(record.id, reassignedRecord);
+    void syncSectionRecordsForAccountability(reassignedRecord);
     setEditingReturnedAssetRecord(null);
     setSelectedModule("it-accountability-form");
     setActiveView("records");
@@ -1212,44 +732,7 @@ function App() {
       }
     });
 
-    const softwareName = String(cleaned.softwareName ?? "").trim();
-    const seatsUsed = Number.parseInt(String(cleaned.seatsUsed ?? "0"), 10);
-
     if (editingSoftwareRecord?.id) {
-      // When editing: restore old seats used, then subtract new seats used from license record
-      const oldSeatsUsed = Number.parseInt(String(editingSoftwareRecord.seatsUsed ?? "0"), 10);
-      const oldSoftwareName = String(editingSoftwareRecord.softwareName ?? "").trim();
-
-      // Restore old software if name changed
-      if (oldSoftwareName && oldSoftwareName !== softwareName) {
-        const oldLicense = licenseMaintenanceRecords.find(
-          (item) => String(item.softwareName ?? "").trim() === oldSoftwareName
-        );
-        if (oldLicense && oldLicense.id) {
-          const restoredQuantity = String(
-            Number.parseInt(String(oldLicense.quantity ?? "0"), 10) + oldSeatsUsed
-          );
-          await updateLicenseMaintenanceRecord(oldLicense.id, {
-            ...oldLicense,
-            quantity: restoredQuantity
-          });
-        }
-      } else if (oldSoftwareName && oldSeatsUsed !== seatsUsed) {
-        // Same software, just update seats difference
-        const license = licenseMaintenanceRecords.find(
-          (item) => String(item.softwareName ?? "").trim() === oldSoftwareName
-        );
-        if (license && license.id) {
-          const quantityDiff = oldSeatsUsed - seatsUsed;
-          const updatedQuantity = String(Number.parseInt(String(license.quantity ?? "0"), 10) + quantityDiff);
-          await updateLicenseMaintenanceRecord(license.id, {
-            ...license,
-            quantity: updatedQuantity
-          });
-        }
-      }
-
-      // Update software record
       await updateSoftwareRecord(editingSoftwareRecord.id, cleaned);
       setEditingSoftwareRecord(null);
       setSelectedSoftwareRecord((prev) => {
@@ -1259,21 +742,6 @@ function App() {
       setSelectedModule("it-software-inventory");
       setActiveView("records");
       return;
-    }
-
-    // When creating: subtract seats used from license record
-    if (softwareName && seatsUsed > 0) {
-      const license = licenseMaintenanceRecords.find(
-        (item) => String(item.softwareName ?? "").trim() === softwareName
-      );
-      if (license && license.id) {
-        const currentQuantity = Number.parseInt(String(license.quantity ?? "0"), 10);
-        const newQuantity = Math.max(0, currentQuantity - seatsUsed);
-        await updateLicenseMaintenanceRecord(license.id, {
-          ...license,
-          quantity: String(newQuantity)
-        });
-      }
     }
 
     await createSoftwareRecord(cleaned);
@@ -1287,25 +755,6 @@ function App() {
       `Delete software form for ${record.softwareName} - ${record.assignedTo}?`
     );
     if (!confirmed) return;
-
-    // Restore seats back to license record when deleting
-    const softwareName = String(record.softwareName ?? "").trim();
-    const seatsUsed = Number.parseInt(String(record.seatsUsed ?? "0"), 10);
-    
-    if (softwareName && seatsUsed > 0) {
-      const license = licenseMaintenanceRecords.find(
-        (item) => String(item.softwareName ?? "").trim() === softwareName
-      );
-      if (license && license.id) {
-        const currentQuantity = Number.parseInt(String(license.quantity ?? "0"), 10);
-        const restoredQuantity = currentQuantity + seatsUsed;
-        await updateLicenseMaintenanceRecord(license.id, {
-          ...license,
-          quantity: String(restoredQuantity)
-        });
-      }
-    }
-
     await removeSoftwareRecord(record.id);
     if (selectedSoftwareRecord?.id === record.id) setSelectedSoftwareRecord(null);
     if (editingSoftwareRecord?.id === record.id) setEditingSoftwareRecord(null);
@@ -1322,6 +771,7 @@ function App() {
 
     if (editingLicenseMaintenanceRecord?.id) {
       await updateLicenseMaintenanceRecord(editingLicenseMaintenanceRecord.id, cleaned);
+      await reloadLicenseMaintenanceRecords();
       setEditingLicenseMaintenanceRecord(null);
       setSelectedLicenseMaintenanceRecord((prev) => {
         if (!prev || prev.id !== editingLicenseMaintenanceRecord.id) return prev;
@@ -1333,6 +783,7 @@ function App() {
     }
 
     await createLicenseMaintenanceRecord(cleaned);
+    await reloadLicenseMaintenanceRecords();
     setSelectedModule("license-maintenance");
     setActiveView("records");
   };
@@ -1519,27 +970,6 @@ function App() {
     setActiveView("borrowing-printable");
   };
 
-  const resolveAccountabilityRecord = (record: AccountabilityRecord) => {
-    const sourceId = String(record.inventorySourceRecordId ?? "").trim();
-    const directId = String(record.id ?? "").trim();
-
-    if (sourceId) {
-      const matchedBySource = records.find((item) => String(item.id ?? "").trim() === sourceId);
-      if (matchedBySource) {
-        return matchedBySource;
-      }
-    }
-
-    if (directId) {
-      const matchedById = records.find((item) => String(item.id ?? "").trim() === directId);
-      if (matchedById) {
-        return matchedById;
-      }
-    }
-
-    return record;
-  };
-
   const handlePrintBorrowingRecord = (record: AccountabilityRecord) => {
     setSelectedRecord(record);
     setPrintActionType("borrowing");
@@ -1676,7 +1106,11 @@ function App() {
   };
 
   const handleDeleteDeliveryReceiptRecord = (record: DeliveryReceiptRecord) => {
-    const confirmed = window.confirm(`Delete delivery receipt ${record.invoiceNumber || record.id}?`);
+    const receiptLabel =
+      record.item === "Others"
+        ? record.customItemName || "Others"
+        : record.item || record.invoiceNumber || record.id;
+    const confirmed = window.confirm(`Delete delivery receipt ${receiptLabel}?`);
     if (!confirmed) return;
 
     const next = deliveryReceiptRecords.filter((item) => item.id !== record.id);
@@ -1712,7 +1146,7 @@ function App() {
       return;
     }
     if (typed === "license-maintenance") {
-      setActiveView("form");
+      setActiveView("records");
       return;
     }
     if (typed === "ipad-inventory") {
@@ -1840,6 +1274,15 @@ function App() {
     return <SelectionPage onSelect={handleModuleSelect} />;
   }
 
+  const accountabilityItemOptions = Array.from(
+    new Set(
+      records
+        .filter((item) => item.inventoryEntryType !== "history")
+        .flatMap((item) => [String(item.deviceType ?? "").trim(), String(item.deviceDescription ?? "").trim()])
+        .filter(Boolean)
+    )
+  ).sort((left, right) => left.localeCompare(right));
+
   const isAccountabilityModule = selectedModule === "it-accountability-form";
   const isNewItemModule = selectedModule === "new-item";
   const isAssetInventoryModule = selectedModule === "it-asset-inventory";
@@ -1854,23 +1297,6 @@ function App() {
   const accountabilityDepartmentOptions = Array.from(
     new Set(records.map((item) => String(item.department ?? "").trim()).filter(Boolean))
   ).sort((left, right) => left.localeCompare(right));
-  const softwareNameAvailability = licenseMaintenanceRecords.reduce<Record<string, number>>(
-    (acc, item) => {
-      const name = String(item.softwareName ?? "").trim();
-      if (!name) {
-        return acc;
-      }
-
-      const quantity = Number.parseInt(String(item.quantity ?? "0"), 10);
-      if (!Number.isFinite(quantity) || quantity <= 0) {
-        return acc;
-      }
-
-      acc[name] = (acc[name] ?? 0) + quantity;
-      return acc;
-    },
-    {}
-  );
   const moduleThemeClass = selectedModule ? `theme-${selectedModule}` : "";
 
   const visibleRecords = records.filter(
@@ -1899,7 +1325,7 @@ function App() {
   );
 
   const headerTitle = isNewItemModule
-    ? "New Item"
+    ? "New Asset"
     : isAssetInventoryModule
     ? "IT Asset Inventory"
     : isSoftwareInventoryModule
@@ -1914,46 +1340,14 @@ function App() {
             ? "Returned Assets"
       : "IT Accountability Form";
 
-  const handleOpenNotifications = () => {
-    setSelectedModule("license-maintenance");
-    setActiveView("records");
-  };
-
-  const handleOpenApiDiagnostics = () => {
-    setShowApiDiagnostics(true);
-  };
-
-  const apiStatus = isFirebaseConfigured
-    ? apiHealth?.ok
-      ? {
-          label: "API Online",
-          tone: "ok" as const,
-          detail: `${apiHealth.service} responded at ${apiHealth.timestamp}`
-        }
-      : {
-          label: "API Offline",
-          tone: "warning" as const,
-          detail: apiHealth?.message || apiHealth?.error || "The API is unreachable."
-        }
-    : {
-        label: "Local Mode",
-        tone: "warning" as const,
-        detail: "Firebase is not configured. Records are saved locally."
-      };
-
   return (
     <div className={`app-shell ${moduleThemeClass}`}>
       <HeaderBar
         localMode={useLocalMode}
         title={headerTitle}
         userEmail={authUser.email ?? "Admin"}
-        darkMode={darkMode}
-        apiStatus={apiStatus}
-        notificationCount={licenseRenewalAlerts.length}
-        notificationItems={licenseRenewalAlerts}
-        onNotificationClick={handleOpenNotifications}
-        onOpenDiagnostics={handleOpenApiDiagnostics}
-        onToggleDarkMode={() => setDarkMode((prev) => !prev)}
+        darkMode={false}
+        onToggleDarkMode={() => {}}
         onLogout={() => {
           void handleLogout();
         }}
@@ -2018,7 +1412,7 @@ function App() {
                       <path d="M9 16h4" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
                     </svg>
                   </span>
-                  Create Delivery Receipt
+                  Input Delivery Receipt
                 </button>
                 <button
                   type="button"
@@ -2075,17 +1469,6 @@ function App() {
                     </svg>
                   </span>
                   Create Borrowing Receipt
-                </button>
-                <button
-                  type="button"
-                  className={`nav-btn${activeView === "records" ? " nav-btn--active" : ""}`}
-                  onClick={() => {
-                    setRecordsInitialTable("borrowing");
-                    setActiveView("records");
-                  }}
-                >
-                  <span className="nav-icon">☰</span>
-                  Borrowing Records
                 </button>
                 <button
                   type="button"
@@ -2157,7 +1540,15 @@ function App() {
                   }}
                 >
                   <span className="nav-icon">✦</span>
-                  New License Record
+                  New License
+                </button>
+                <button
+                  type="button"
+                  className={`nav-btn${activeView === "status" ? " nav-btn--active" : ""}`}
+                  onClick={() => setActiveView("status")}
+                >
+                  <span className="nav-icon">⚑</span>
+                  License Status
                 </button>
                 <button
                   type="button"
@@ -2192,14 +1583,6 @@ function App() {
                 >
                   <span className="nav-icon">▦</span>
                   IPAD Records
-                </button>
-                <button
-                  type="button"
-                  className={`nav-btn${activeView === "chart" ? " nav-btn--active" : ""}`}
-                  onClick={() => setActiveView("chart")}
-                >
-                  <span className="nav-icon">◔</span>
-                  Graph
                 </button>
                 <button
                   type="button"
@@ -2256,19 +1639,19 @@ function App() {
               <>
                 <button
                   type="button"
-                  className={`nav-btn${activeView === "records" ? " nav-btn--active" : ""}`}
-                  onClick={() => setActiveView("records")}
-                >
-                  <span className="nav-icon">☰</span>
-                  Returned Assets
-                </button>
-                <button
-                  type="button"
                   className={`nav-btn${activeView === "form" ? " nav-btn--active" : ""}`}
                   onClick={() => setActiveView("form")}
                 >
                   <span className="nav-icon">✎</span>
                   Reassign Form
+                </button>
+                <button
+                  type="button"
+                  className={`nav-btn${activeView === "records" ? " nav-btn--active" : ""}`}
+                  onClick={() => setActiveView("records")}
+                >
+                  <span className="nav-icon">☰</span>
+                  Returned Assets
                 </button>
                 <button
                   type="button"
@@ -2296,16 +1679,10 @@ function App() {
           <div className="sidebar-bottom">
             <button
               type="button"
-              className="nav-btn nav-btn-modules"
-              onClick={handleGoToSelectionPage}
-            >
-              <span className="nav-icon">⌂</span>
-              Modules
-            </button>
-            <button
-              type="button"
-              className="nav-btn nav-btn-danger nav-btn-back"
-              onClick={handleSidebarBack}
+              className="nav-btn nav-btn-danger"
+              onClick={() => {
+                setSelectedModule(null);
+              }}
             >
               <span className="nav-icon">↩</span>
               Back
@@ -2314,42 +1691,25 @@ function App() {
         </aside>
 
         <main className="main-content">
-          {(accountabilityError || softwareError || licenseMaintenanceError || borrowingError || assetInventoryError || ipadInventoryError || returnedAssetsError || disposalError) && (
+          {(accountabilityError || softwareError || borrowingError || assetInventoryError || ipadInventoryError || returnedAssetsError || disposalError) && (
             <div className="error-box">
               {accountabilityError && <p>{accountabilityError}</p>}
               {softwareError && <p>{softwareError}</p>}
-              {licenseMaintenanceError && <p>{licenseMaintenanceError}</p>}
               {borrowingError && <p>{borrowingError}</p>}
               {assetInventoryError && <p>{assetInventoryError}</p>}
               {ipadInventoryError && <p>{ipadInventoryError}</p>}
               {returnedAssetsError && <p>{returnedAssetsError}</p>}
               {disposalError && <p>{disposalError}</p>}
+              {licenseMaintenanceError && <p>{licenseMaintenanceError}</p>}
             </div>
-          )}
-
-          {isLicenseMaintenanceModule && licenseRenewalAlerts.length > 0 && (
-            <section className="panel license-renewal-alerts" role="status" aria-live="polite">
-              <h3>License Expiration Alerts (Next 3 Months)</h3>
-              <p className="helper-text">
-                Notifications are prepared for licenses approaching expiration.
-              </p>
-              <div className="license-renewal-alert-list">
-                {licenseRenewalAlerts.map((item) => (
-                  <article className="license-renewal-alert-item" key={item.key}>
-                    <strong>{item.softwareName}</strong>
-                    <span>Contract/PO: {item.contractOrPoNumber}</span>
-                    <span>Expiration Date: {item.expirationDate}</span>
-                    <span className="license-renewal-alert-status">Status: {item.renewalStatus}</span>
-                  </article>
-                ))}
-              </div>
-            </section>
           )}
 
           {isNewItemModule && activeView === "delivery-receipt-form" && (
             <DeliveryReceiptForm
               editingRecord={editingDeliveryReceiptRecord}
               onSave={handleSaveDeliveryReceipt}
+              currentUserLabel={authUser.email ?? authUser.displayName ?? "Admin"}
+              itemOptionsFromAccountability={accountabilityItemOptions}
               onCancelEdit={() => {
                 setEditingDeliveryReceiptRecord(null);
                 setRecordsInitialTable("delivery");
@@ -2375,6 +1735,8 @@ function App() {
             <DeliveryReceiptForm
               editingRecord={editingDeliveryReceiptRecord}
               onSave={handleSaveDeliveryReceipt}
+              currentUserLabel={authUser.email ?? authUser.displayName ?? "Admin"}
+              itemOptionsFromAccountability={accountabilityItemOptions}
               onCancelEdit={() => {
                 setEditingDeliveryReceiptRecord(null);
                 setRecordsInitialTable("delivery");
@@ -2412,7 +1774,6 @@ function App() {
               newItemRecords={deliveryReceiptRecords}
               loading={accountabilityLoading}
               onRefresh={reloadAccountabilityRecords}
-              onResolveAccountabilityRecord={resolveAccountabilityRecord}
             />
           )}
 
@@ -2432,39 +1793,8 @@ function App() {
             />
           )}
 
-          {isAssetInventoryModule && activeView === "records" && (
-            <RecordsList
-              records={records}
-              borrowingReceiptByRecordId={borrowingReceiptByRecordId}
-              deliveryReceiptRecords={deliveryReceiptRecords}
-              initialTable={recordsInitialTable ?? "borrowing"}
-              borrowingOnly
-              onEdit={handleEditRecord}
-              onDelete={handleDelete}
-              onPrint={handlePrintRecord}
-              onView={handleViewRecord}
-              onBorrowing={handleBorrowingRecord}
-              onBorrowingView={handleViewBorrowingRecord}
-              onBorrowingDelete={handleDeleteBorrowingRecord}
-              onBorrowingPrint={handlePrintBorrowingRecord}
-              onCreateFromPreviousRecord={handleCreateNewFormFromPreviousRecord}
-              onDeliveryView={handleViewDeliveryReceiptRecord}
-              onDeliveryEdit={handleEditDeliveryReceiptRecord}
-              onDeliveryDelete={handleDeleteDeliveryReceiptRecord}
-              onDeliveryPrint={handlePrintDeliveryReceiptRecord}
-              printActionType={printActionType}
-            />
-          )}
-
           {isIpadInventoryModule && activeView === "inventory" && (
-            <IPadInventory
-              records={ipadInventoryRecords}
-              onResolveAccountabilityRecord={resolveAccountabilityRecord}
-            />
-          )}
-
-          {isIpadInventoryModule && activeView === "chart" && (
-            <IPadInventoryChart records={ipadInventoryRecords} />
+            <IPadInventory records={ipadInventoryRecords} />
           )}
 
           {isIpadInventoryModule && activeView === "printable" && (
@@ -2475,7 +1805,6 @@ function App() {
             <SoftwareInventoryForm
               editingRecord={editingSoftwareRecord}
               onSubmit={handleSoftwareSubmit}
-              softwareNameAvailability={softwareNameAvailability}
               projectOptionsFromAccountability={accountabilityProjectOptions}
               departmentOptionsFromAccountability={accountabilityDepartmentOptions}
               onCancelEdit={() => {
@@ -2520,6 +1849,18 @@ function App() {
             />
           )}
 
+          {isLicenseMaintenanceModule && (activeView === "records" || activeView === "status") && (
+            <LicenseMaintenanceRecords
+              records={licenseMaintenanceRecords}
+              softwareRecords={softwareRecords}
+              loading={licenseMaintenanceLoading}
+              onView={handleViewLicenseMaintenanceRecord}
+              onEdit={handleEditLicenseMaintenanceRecord}
+              onDelete={handleLicenseMaintenanceDelete}
+              viewMode={activeView === "status" ? "status" : "records"}
+            />
+          )}
+
           {isAccountabilityModule && activeView === "borrowing-form" && (
             <BorrowingReceiptForm
               record={selectedRecord}
@@ -2539,17 +1880,6 @@ function App() {
             />
           )}
 
-          {isLicenseMaintenanceModule && activeView === "records" && (
-            <LicenseMaintenanceRecords
-              records={licenseMaintenanceRecords}
-              softwareRecords={softwareRecords}
-              loading={licenseMaintenanceLoading}
-              onView={handleViewLicenseMaintenanceRecord}
-              onEdit={handleEditLicenseMaintenanceRecord}
-              onDelete={handleLicenseMaintenanceDelete}
-            />
-          )}
-
           {isSoftwareInventoryModule && activeView === "chart" && (
             <SoftwareInventoryChart records={softwareRecords} />
           )}
@@ -2559,14 +1889,6 @@ function App() {
           )}
 
           {isAccountabilityModule && activeView === "borrowing-printable" && (
-            <BorrowingReceiptPrintable
-              record={selectedRecord}
-              data={selectedRecord?.id ? borrowingReceiptByRecordId[selectedRecord.id] ?? emptyBorrowingReceiptData() : emptyBorrowingReceiptData()}
-              ref={borrowingPrintRef}
-            />
-          )}
-
-          {isAssetInventoryModule && activeView === "borrowing-printable" && (
             <BorrowingReceiptPrintable
               record={selectedRecord}
               data={selectedRecord?.id ? borrowingReceiptByRecordId[selectedRecord.id] ?? emptyBorrowingReceiptData() : emptyBorrowingReceiptData()}
@@ -2651,39 +1973,6 @@ function App() {
           )}
         </main>
       </div>
-      {showApiDiagnostics && (
-        <div className="history-modal-backdrop" onClick={() => setShowApiDiagnostics(false)}>
-          <div className="history-modal api-diagnostics-modal" onClick={(event) => event.stopPropagation()}>
-            <div className="history-modal-header">
-              <div>
-                <h3>API Diagnostics</h3>
-                <p className="helper-text">
-                  {apiHealth?.message || apiHealth?.error || "Inspect the current API and Firebase status."}
-                </p>
-              </div>
-              <button type="button" className="icon-button" onClick={() => setShowApiDiagnostics(false)} aria-label="Close diagnostics">
-                <span aria-hidden="true">×</span>
-              </button>
-            </div>
-            <div className="history-modal-body">
-              <pre className="api-diagnostics-pre">
-{JSON.stringify(
-  {
-    apiHealth,
-    apiDebug,
-    firebaseConfigured: isFirebaseConfigured,
-    adminUidConfigured: isAdminUidConfigured,
-    localMode: useLocalMode,
-    baseUrl: import.meta.env.VITE_API_BASE_URL || `${window.location.origin}/api`
-  },
-  null,
-  2
-)}
-              </pre>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }

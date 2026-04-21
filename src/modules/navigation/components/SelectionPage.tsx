@@ -3,7 +3,7 @@ interface SelectionPageProps {
 }
 
 const MODULES = [
-  { key: "new-item", label: "New Item", tone: "primary" },
+  { key: "new-item", label: "New Asset", tone: "primary" },
   { key: "it-accountability-form", label: "IT Accountability Form", tone: "primary" },
   { key: "it-asset-inventory", label: "IT Asset Inventory", tone: "cta" },
   { key: "it-software-inventory", label: "IT Software Inventory", tone: "special" },

@@ -6,6 +6,13 @@ interface DeliveryReceiptPrintableProps {
 }
 
 const valueOrDash = (value?: string) => value?.trim() || "-";
+const resolveItemLabel = (record: DeliveryReceiptRecord) => {
+  if (String(record.item ?? "").trim() === "Others") {
+    return valueOrDash(record.customItemName);
+  }
+
+  return valueOrDash(record.item || record.invoiceNumber);
+};
 
 export const DeliveryReceiptPrintable = forwardRef<
   HTMLDivElement,
@@ -49,12 +56,16 @@ export const DeliveryReceiptPrintable = forwardRef<
         {/* Receipt Number and Date */}
         <div className="receipt-meta">
           <div className="receipt-meta-item">
-            <span className="receipt-label">Receipt No.:</span>
-            <span className="receipt-value">{valueOrDash(record.invoiceNumber)}</span>
+            <span className="receipt-label">Item:</span>
+            <span className="receipt-value">{resolveItemLabel(record)}</span>
           </div>
           <div className="receipt-meta-item">
             <span className="receipt-label">Date:</span>
             <span className="receipt-value">{valueOrDash(record.deliveryDate)}</span>
+          </div>
+          <div className="receipt-meta-item">
+            <span className="receipt-label">Input By:</span>
+            <span className="receipt-value">{valueOrDash(record.inputBy)}</span>
           </div>
         </div>
 

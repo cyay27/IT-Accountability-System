@@ -116,6 +116,79 @@ const getBorrowingReturnStatus = (
   return now.getTime() > expected.getTime() ? "Overdue" : "Borrowed";
 };
 
+const isPreviewableDocumentType = (mimeType?: string) => {
+  const normalized = String(mimeType ?? "").toLowerCase();
+  return normalized.startsWith("image/") || normalized === "application/pdf";
+};
+
+const dataUrlToBlob = (dataUrl: string) => {
+  const parts = dataUrl.split(",");
+  if (parts.length < 2) {
+    return null;
+  }
+
+  const meta = parts[0];
+  const base64 = parts.slice(1).join(",");
+  const mimeMatch = meta.match(/data:(.*?);base64/);
+  const mimeType = mimeMatch?.[1] || "application/octet-stream";
+
+  try {
+    const binary = window.atob(base64);
+    const bytes = new Uint8Array(binary.length);
+    for (let index = 0; index < binary.length; index += 1) {
+      bytes[index] = binary.charCodeAt(index);
+    }
+    return new Blob([bytes], { type: mimeType });
+  } catch {
+    return null;
+  }
+};
+
+const downloadDataUrl = (dataUrl: string, fileName: string) => {
+  const blob = dataUrlToBlob(dataUrl);
+  if (!blob) {
+    window.alert("Unable to download document. The file data is missing or invalid.");
+    return;
+  }
+
+  const objectUrl = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = objectUrl;
+  link.download = fileName || "attachment";
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  window.setTimeout(() => URL.revokeObjectURL(objectUrl), 0);
+};
+
+const previewDataUrl = (dataUrl: string, fileName: string, mimeType?: string) => {
+  if (!String(dataUrl).trim()) {
+    window.alert("Unable to open document. No file data was saved for this record.");
+    return;
+  }
+
+  if (!isPreviewableDocumentType(mimeType)) {
+    downloadDataUrl(dataUrl, fileName);
+    return;
+  }
+
+  const blob = dataUrlToBlob(dataUrl);
+  if (!blob) {
+    window.alert("Unable to preview document. The file data is invalid.");
+    return;
+  }
+
+  const objectUrl = URL.createObjectURL(blob);
+  const opened = window.open(objectUrl, "_blank", "noopener,noreferrer");
+  if (!opened) {
+    URL.revokeObjectURL(objectUrl);
+    window.alert("Unable to open document preview. Please allow pop-ups.");
+    return;
+  }
+
+  window.setTimeout(() => URL.revokeObjectURL(objectUrl), 60000);
+};
+
 const AccountabilityIcon = () => (
   <svg viewBox="0 0 24 24" role="img" aria-hidden="true">
     <path d="M7 3h8l4 4v14H7z" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" />
@@ -576,12 +649,13 @@ export const RecordsList = ({
           <table className="delivery-table">
             <thead>
               <tr>
-                <th>Invoice Number</th>
+                <th>Item</th>
                 <th>Purchase Number</th>
                 <th>Supplier</th>
                 <th>Delivery Date</th>
                 <th>Item Description</th>
                 <th>Other Details</th>
+                <th>Documents</th>
                 <th>Updated</th>
                 <th>Actions</th>
               </tr>
@@ -589,17 +663,55 @@ export const RecordsList = ({
             <tbody>
               {deliveryReceiptRecords.length === 0 ? (
                 <tr>
-                  <td colSpan={8}>No delivery receipt records found yet. Create and save a Delivery Receipt first.</td>
+                  <td colSpan={9}>No delivery receipt records found yet. Create and save a Delivery Receipt first.</td>
                 </tr>
               ) : (
                 deliveryReceiptRecords.map((record) => (
                   <tr key={record.id}>
-                    <td>{record.invoiceNumber || "-"}</td>
+                    <td>{record.item === "Others" ? (record.customItemName || "Others") : (record.item || record.invoiceNumber || "-")}</td>
                     <td>{record.purchaseNumber || "-"}</td>
                     <td>{record.supplier || "-"}</td>
                     <td>{record.deliveryDate || "-"}</td>
                     <td>{record.itemDescription || "-"}</td>
                     <td>{record.otherDetails || "-"}</td>
+                    <td>
+                      <div className="license-doc-links">
+                        {record.poAttachment?.dataUrl ? (
+                          <button
+                            type="button"
+                            className="doc-link-btn"
+                            onClick={() =>
+                              previewDataUrl(
+                                record.poAttachment?.dataUrl || "",
+                                record.poAttachment?.name || "PO file",
+                                record.poAttachment?.type
+                              )
+                            }
+                          >
+                            PO
+                          </button>
+                        ) : (
+                          <span>-</span>
+                        )}
+                        {record.contractAttachment?.dataUrl ? (
+                          <button
+                            type="button"
+                            className="doc-link-btn"
+                            onClick={() =>
+                              previewDataUrl(
+                                record.contractAttachment?.dataUrl || "",
+                                record.contractAttachment?.name || "Contract file",
+                                record.contractAttachment?.type
+                              )
+                            }
+                          >
+                            Contract
+                          </button>
+                        ) : (
+                          <span>-</span>
+                        )}
+                      </div>
+                    </td>
                     <td>{record.updatedAt ? new Date(record.updatedAt).toLocaleString() : "-"}</td>
                     <td className="row-actions">
                       <button type="button" onClick={() => onDeliveryView(record)} title="View delivery receipt" aria-label="View delivery receipt"><ViewIcon /></button>

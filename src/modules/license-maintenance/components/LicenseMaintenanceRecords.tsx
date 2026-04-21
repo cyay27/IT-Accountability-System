@@ -10,11 +10,44 @@ interface LicenseMaintenanceRecordsProps {
   onView: (record: LicenseMaintenanceRecord) => void;
   onEdit: (record: LicenseMaintenanceRecord) => void;
   onDelete: (record: LicenseMaintenanceRecord) => Promise<void>;
+  viewMode?: "records" | "status";
 }
 
 type SortKey = keyof LicenseMaintenanceRecord;
 
 const normalize = (value?: string) => String(value ?? "").trim().toLowerCase();
+
+const getDerivedRenewalStatus = (record: LicenseMaintenanceRecord) => {
+  const explicitStatus = normalize(record.renewalStatus);
+  if (explicitStatus === "active" || explicitStatus === "expired" || explicitStatus === "for renewal") {
+    return record.renewalStatus;
+  }
+
+  if (!record.expirationDate.trim()) {
+    return "";
+  }
+
+  const parsedExpiration = new Date(record.expirationDate);
+  if (Number.isNaN(parsedExpiration.getTime())) {
+    return "";
+  }
+
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  parsedExpiration.setHours(0, 0, 0, 0);
+
+  if (parsedExpiration < today) {
+    return "Expired";
+  }
+
+  const msPerDay = 24 * 60 * 60 * 1000;
+  const daysUntilExpiration = Math.ceil((parsedExpiration.getTime() - today.getTime()) / msPerDay);
+  if (daysUntilExpiration <= 30) {
+    return "For Renewal";
+  }
+
+  return "Active";
+};
 
 export const LicenseMaintenanceRecords = ({
   records,
@@ -22,7 +55,8 @@ export const LicenseMaintenanceRecords = ({
   loading,
   onView,
   onEdit,
-  onDelete
+  onDelete,
+  viewMode = "records"
 }: LicenseMaintenanceRecordsProps) => {
   const [search, setSearch] = useState("");
   const [vendor, setVendor] = useState("");
@@ -130,10 +164,29 @@ export const LicenseMaintenanceRecords = ({
       new Set(records.map((item) => item.productType).filter(Boolean))
     ).sort((a, b) => a.localeCompare(b));
     const renewalStatuses = Array.from(
-      new Set(records.map((item) => item.renewalStatus).filter(Boolean))
+      new Set(records.map((item) => getDerivedRenewalStatus(item)).filter(Boolean))
     ).sort((a, b) => a.localeCompare(b));
 
     return { vendors, productTypes, renewalStatuses };
+  }, [records]);
+
+  const statusCounts = useMemo(() => {
+    const counts = records.reduce(
+      (accumulator, record) => {
+        const normalized = normalize(getDerivedRenewalStatus(record));
+        if (normalized === "active") {
+          accumulator.active += 1;
+        } else if (normalized === "expired") {
+          accumulator.expired += 1;
+        } else if (normalized === "for renewal") {
+          accumulator.forRenewal += 1;
+        }
+        return accumulator;
+      },
+      { active: 0, expired: 0, forRenewal: 0 }
+    );
+
+    return counts;
   }, [records]);
 
   const filtered = useMemo(() => {
@@ -147,7 +200,7 @@ export const LicenseMaintenanceRecords = ({
         record.productKey,
         record.contractOrPoNumber,
         record.expirationDate,
-        record.renewalStatus,
+        getDerivedRenewalStatus(record),
         record.poAttachment?.name,
         record.contractAttachment?.name
       ]
@@ -157,14 +210,20 @@ export const LicenseMaintenanceRecords = ({
       const bySearch = !lowered || searchBlob.includes(lowered);
       const byVendor = !vendor || record.vendor === vendor;
       const byProductType = !productType || record.productType === productType;
-      const byRenewalStatus = !renewalStatus || record.renewalStatus === renewalStatus;
+      const byRenewalStatus = !renewalStatus || getDerivedRenewalStatus(record) === renewalStatus;
 
       return bySearch && byVendor && byProductType && byRenewalStatus;
     });
 
     return [...base].sort((left, right) => {
-      const leftValue = normalize(String(left[sortKey] ?? ""));
-      const rightValue = normalize(String(right[sortKey] ?? ""));
+      const leftValue =
+        sortKey === "renewalStatus"
+          ? normalize(getDerivedRenewalStatus(left))
+          : normalize(String(left[sortKey] ?? ""));
+      const rightValue =
+        sortKey === "renewalStatus"
+          ? normalize(getDerivedRenewalStatus(right))
+          : normalize(String(right[sortKey] ?? ""));
       const compared = leftValue.localeCompare(rightValue);
       return ascending ? compared : -compared;
     });
@@ -182,8 +241,29 @@ export const LicenseMaintenanceRecords = ({
 
   return (
     <section className="panel">
-      <h2>License Maintenance Records</h2>
-      <p className="helper-text">Search and filter by software, vendor, or product type.</p>
+      <h2>{viewMode === "status" ? "License Status" : "License Maintenance Records"}</h2>
+      <p className="helper-text">
+        {viewMode === "status"
+          ? "Review licenses by renewal state: Active, Expired, or For Renewal."
+          : "Search and filter by software, vendor, or product type."}
+      </p>
+
+      {viewMode === "status" && (
+        <div className="status-summary-grid">
+          <div className="status-summary-card">
+            <span className="license-renewal-badge active">Active</span>
+            <strong>{statusCounts.active}</strong>
+          </div>
+          <div className="status-summary-card">
+            <span className="license-renewal-badge expired">Expired</span>
+            <strong>{statusCounts.expired}</strong>
+          </div>
+          <div className="status-summary-card">
+            <span className="license-renewal-badge renewal">For Renewal</span>
+            <strong>{statusCounts.forRenewal}</strong>
+          </div>
+        </div>
+      )}
 
       <div className="filters">
         <input
@@ -211,7 +291,7 @@ export const LicenseMaintenanceRecords = ({
         </select>
 
         <select value={renewalStatus} onChange={(event) => setRenewalStatus(event.target.value)}>
-          <option value="">All Renewal Statuses</option>
+          <option value="">{viewMode === "status" ? "All Statuses" : "All Renewal Statuses"}</option>
           {options.renewalStatuses.map((option) => (
             <option key={option} value={option}>
               {option}
@@ -244,7 +324,7 @@ export const LicenseMaintenanceRecords = ({
                 <button type="button" onClick={() => toggleSort("expirationDate")}>Expiration Date</button>
               </th>
               <th>
-                <button type="button" onClick={() => toggleSort("renewalStatus")}>Renewal Status</button>
+                <button type="button" onClick={() => toggleSort("renewalStatus")}>Status</button>
               </th>
               <th>
                 <button type="button" onClick={() => toggleSort("productType")}>Product Type</button>
@@ -267,7 +347,9 @@ export const LicenseMaintenanceRecords = ({
                 <td>{record.contractOrPoNumber || "-"}</td>
                 <td>{record.expirationDate || "-"}</td>
                 <td>
-                  <span className={toBadgeClass(record.renewalStatus)}>{record.renewalStatus || "-"}</span>
+                  <span className={toBadgeClass(getDerivedRenewalStatus(record))}>
+                    {getDerivedRenewalStatus(record) || "-"}
+                  </span>
                 </td>
                 <td>{record.productType || "-"}</td>
                 <td>

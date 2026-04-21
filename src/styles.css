@@ -299,14 +299,15 @@ body {
   box-shadow: none;
   display: grid;
   grid-template-columns: minmax(280px, 360px) minmax(0, 1fr);
-  background-image: url("/assets/building1.png");
+  background-image: url("/assets/building1.jpg");
   background-position: center;
-  background-size: cover;
+  background-size: 115% auto;
   background-repeat: no-repeat;
 }
 
 .selection-sidebar {
-  background: #FFCC00;
+  background: rgba(255, 255, 255, 0.62);
+  backdrop-filter: blur(10px);
   border-right: 1px solid rgba(3, 10, 140, 0.3);
   box-shadow: 10px 0 22px rgba(3, 10, 140, 0.16);
   padding: 1.35rem;
@@ -339,6 +340,7 @@ body {
   font-size: clamp(1.1rem, 1.7vw, 1.45rem);
   line-height: 1.12;
   color: #111111;
+  text-align: center;
 }
 
 .selection-grid {
@@ -346,6 +348,7 @@ body {
   display: flex;
   flex-direction: column;
   gap: 0.52rem;
+  align-items: center;
 }
 
 .selection-btn {
@@ -354,11 +357,12 @@ body {
   background: #f8fafc;
   color: #111111;
   min-height: 46px;
-  padding: 0.58rem 0.75rem;
+  width: min(100%, 240px);
+  padding: 0.58rem 0.9rem;
   font-family: "Calibri", sans-serif;
   font-size: 0.85rem;
   font-weight: 600;
-  text-align: left;
+  text-align: center;
   cursor: pointer;
   transition: transform 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease, background 0.15s ease;
   outline: none;
@@ -488,6 +492,7 @@ body {
   .selection-btn {
     min-height: 42px;
     font-size: 0.8rem;
+    width: min(100%, 220px);
   }
 }
 
@@ -1489,6 +1494,16 @@ textarea::placeholder {
   overflow-wrap: break-word;
 }
 
+.delivery-other-details::placeholder {
+  font-size: 0.85rem;
+  font-weight: 400;
+  line-height: 1.2;
+}
+
+.delivery-other-details {
+  min-height: 2.35rem;
+}
+
 input:focus,
 select:focus,
 textarea:focus {
@@ -1678,6 +1693,30 @@ textarea {
   border-color: #fecaca;
   background: #fef2f2;
   color: #991b1b;
+}
+
+.status-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 0.75rem;
+  margin: 0.9rem 0 1.1rem;
+}
+
+.status-summary-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  border: 1px solid #e2e8f0;
+  border-radius: 14px;
+  background: #f8fafc;
+  padding: 0.85rem 1rem;
+  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.04);
+}
+
+.status-summary-card strong {
+  font-size: 1.2rem;
+  color: #0f172a;
 }
 
 .license-renewal-alerts h3 {

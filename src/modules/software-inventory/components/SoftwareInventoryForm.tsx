@@ -9,7 +9,6 @@ import { SignaturePad } from "../../accountability/components/SignaturePad";
 interface SoftwareInventoryFormProps {
   editingRecord: SoftwareInventoryRecord | null;
   onSubmit: (record: SoftwareInventoryRecord) => Promise<void>;
-  softwareNameAvailability?: Record<string, number>;
   projectOptionsFromAccountability?: string[];
   departmentOptionsFromAccountability?: string[];
   onCancelEdit: () => void;
@@ -142,12 +141,7 @@ const loadSoftwareDropdownConfig = () => {
         ...(parsed.dropdownFields ?? {}),
         project: false
       },
-      selectOptions: {
-        ...defaultSelectOptions,
-        ...(parsed.selectOptions ?? {}),
-        // Keep Software Name choices fixed to defaults to avoid bulk/multi-software sync pollution.
-        softwareName: [...(defaultSelectOptions.softwareName ?? [""])]
-      }
+      selectOptions: { ...defaultSelectOptions, ...(parsed.selectOptions ?? {}) }
     };
   } catch {
     return {
@@ -159,7 +153,6 @@ const loadSoftwareDropdownConfig = () => {
 
 export const SoftwareInventoryForm = ({
   editingRecord,
-  softwareNameAvailability = {},
   projectOptionsFromAccountability = [],
   departmentOptionsFromAccountability = [],
   onSubmit,
@@ -427,7 +420,7 @@ export const SoftwareInventoryForm = ({
               </span>
 
               {isSelect ? (
-                <div className="field-select-wrap" style={{ position: "relative" }}>
+                <div className="field-select-wrap">
                   <select
                     value={String(form[key] ?? "")}
                     onChange={(event) =>
@@ -443,24 +436,6 @@ export const SoftwareInventoryForm = ({
                       </option>
                     ))}
                   </select>
-                  {key === "softwareName" && String(form[key] ?? "").trim() && (
-                    <div
-                      style={{
-                        position: "absolute",
-                        right: "32px",
-                        top: "50%",
-                        transform: "translateY(-50%)",
-                        color: "#999",
-                        fontSize: "13px",
-                        pointerEvents: "none",
-                        whiteSpace: "nowrap"
-                      }}
-                    >
-                      {typeof softwareNameAvailability[String(form[key] ?? "")] === "number"
-                        ? `${softwareNameAvailability[String(form[key] ?? "")]} available`
-                        : ""}
-                    </div>
-                  )}
                   <button
                     type="button"
                     className="field-select-add-btn"

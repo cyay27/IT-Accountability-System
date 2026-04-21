@@ -279,16 +279,16 @@ export const ITAssetInventory = ({
       </section>
 
       <section className="inventory-table-card" style={{ marginTop: "0.85rem" }}>
-        <h3 style={{ margin: "0 0 0.65rem", fontSize: "1rem", fontWeight: 700 }}>New Item Records</h3>
+        <h3 style={{ margin: "0 0 0.65rem", fontSize: "1rem", fontWeight: 700 }}>New Asset Records</h3>
         <p className="helper-text" style={{ marginBottom: "0.75rem" }}>
-          Data entered from the New Item module is listed here.
+          Data entered from the New Asset module is listed here.
         </p>
 
         <div className="table-wrap">
           <table>
             <thead>
               <tr>
-                <th>Invoice Number</th>
+                <th>Item</th>
                 <th>Purchase Number</th>
                 <th>Supplier</th>
                 <th>Delivery Date</th>
@@ -301,7 +301,7 @@ export const ITAssetInventory = ({
             <tbody>
               {newItemRecords.map((record) => (
                 <tr key={record.id}>
-                  <td>{record.invoiceNumber || "-"}</td>
+                  <td>{record.item === "Others" ? (record.customItemName || "Others") : (record.item || record.invoiceNumber || "-")}</td>
                   <td>{record.purchaseNumber || "-"}</td>
                   <td>{record.supplier || "-"}</td>
                   <td>{record.deliveryDate || "-"}</td>
@@ -313,7 +313,7 @@ export const ITAssetInventory = ({
               ))}
               {newItemRecords.length === 0 && (
                 <tr>
-                  <td colSpan={8}>No New Item records found yet.</td>
+                  <td colSpan={8}>No New Asset records found yet.</td>
                 </tr>
               )}
             </tbody>

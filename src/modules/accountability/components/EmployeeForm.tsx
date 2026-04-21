@@ -61,7 +61,7 @@ const labels: FieldDef[] = [
   { key: "hostname", label: "Hostname" },
   { key: "serialNumber", label: "Serial Number" },
   { key: "deviceCondition", label: "Device Condition", type: "select", options: ["", "New", "Old", "Aged"] },
-  { key: "deviceStatus", label: "Device Status", type: "select", options: ["", "Defective", "For Disposal", "Deployed"] },
+  { key: "deviceStatus", label: "Device Status", type: "select", options: ["", "Active", "Defective", "For Disposal", "Deployed"] },
   { key: "deviceAssetNumber", label: "Asset Number (Device)" },
   { key: "monitorModel", label: "Monitor Model" },
   { key: "monitorSerialNumber", label: "Monitor Serial Number" },
@@ -156,7 +156,6 @@ const loadEmployeeDropdownConfig = () => {
             new Set(
               currentDeviceStatusOptions
                 .filter((option) => option.trim() !== "")
-                .filter((option) => option.trim().toLowerCase() !== "active")
                 .map((option) => option.trim())
             )
           )
@@ -189,6 +188,7 @@ const loadEmployeeDropdownConfig = () => {
     ensureOption(normalizedDeviceConditionOptions, "New");
     ensureOption(normalizedDeviceConditionOptions, "Old");
     ensureOption(normalizedDeviceConditionOptions, "Aged");
+    ensureOption(normalizedDeviceStatusOptions, "Active");
     ensureOption(normalizedDeviceStatusOptions, "Defective");
     ensureOption(normalizedDeviceStatusOptions, "For Disposal");
     ensureOption(normalizedDeviceStatusOptions, "Deployed");
@@ -320,6 +320,11 @@ export const EmployeeForm = ({ editingRecord, prefillRecord = null, onSubmit, on
       JSON.stringify({ dropdownFields, selectOptions })
     );
   }, [dropdownFields, selectOptions]);
+
+  const fullName = useMemo(
+    () => [form.firstName, form.middleName, form.lastName].filter(Boolean).join(" "),
+    [form.firstName, form.middleName, form.lastName]
+  );
 
   const inventorySoftwareByName = useMemo(() => {
     const map = new Map<string, string>();
@@ -825,6 +830,13 @@ export const EmployeeForm = ({ editingRecord, prefillRecord = null, onSubmit, on
       >
         {isEditMode ? "Done" : "Edit"}
       </button>
+      <p className="helper-text">Full Name Preview: <strong>{fullName || "-"}</strong></p>
+      <p className="helper-text">
+        Signature Workflow Status: <strong>{form.workflowStatus || "Pending Employee Signature"}</strong>
+        {" • "}
+        Routed To: <strong>{form.signatureRouteTo || form.email || fullName || "Employee/User"}</strong>
+      </p>
+
       {errors.length > 0 && (
         <div className="error-box">
           {errors.map((message) => (
